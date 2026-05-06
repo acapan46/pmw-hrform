@@ -6,16 +6,29 @@ import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
-import { Model } from "survey-core";
+import { Model, Serializer } from "survey-core";
 import { Survey } from "survey-react-ui";
 import { LayeredDarkPanelless, LayeredLightPanelless } from "survey-core/themes";
 import "survey-core/survey-core.min.css";
 
-import { getLatestFormBySlug, getFormVersion, spGet, spPost, triggerApprovalNotification, getSharePointChoices } from "../utils/formBuilderSP";
+import { getLatestFormBySlug, getFormVersion, spGet, spPost, triggerApprovalNotification, getSharePointChoices, uploadSignatureImage } from "../utils/formBuilderSP";
+import { registerSignaturePad } from "../utils/SignaturePad";
 import { loginRequest } from "../auth/msalConfig";
 import Logo from "../components/Logo";
 
 const SP_SITE_URL = (import.meta.env.VITE_SP_SITE_URL || "").replace(/\/$/, "");
+
+// ── Register custom SurveyJS widgets and properties ────────────────────
+registerSignaturePad();
+
+if (!Serializer.findProperty("text", "autocapitalize")) {
+  Serializer.addProperty("text", {
+    name: "autocapitalize",
+    category: "general",
+    choices: ["none", "sentences", "words", "characters"],
+    default: "none",
+  });
+}
 
 // Theme tokens
 const LIGHT = {
@@ -44,6 +57,7 @@ const globalCss = (t: typeof LIGHT) => `
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   .dfp-survey-wrap .sd-root-modern{background:transparent!important}
+.dfp-survey-wrap .sd-container-modern>.sd-title{text-align:center!important}
   ::-webkit-scrollbar{width:5px}
   ::-webkit-scrollbar-thumb{background:${t.purpleMid};border-radius:10px}
 `;
@@ -287,7 +301,32 @@ export default function DynamicFormPage() {
   const survey = useMemo(() => {
     const json = enrichedSurveyJson;
     if (!json) return null;
-    try { const m = new Model(json); m.applyTheme(dark ? LayeredDarkPanelless : LayeredLightPanelless); m.showCompletedPage = false; return m; } catch (e) { console.error("[DFP] Model error:", e); return null; }
+    try {
+      const m = new Model(json);
+      m.applyTheme(dark ? LayeredDarkPanelless : LayeredLightPanelless);
+      m.showCompletedPage = false;
+      m.onValueChanged.add((_, options) => {
+        const q = m.getQuestionByName(options.name);
+        if (!q || q.getType() !== "text") return;
+        const mode = (q as Record<string, unknown>).autocapitalize as string | undefined;
+        if (!mode || mode === "none") return;
+        const val = options.value;
+        if (typeof val !== "string") return;
+        const transform = (v: string) => {
+          switch (mode) {
+            case "words": return v.replace(/\b\w/g, c => c.toUpperCase());
+            case "sentences": return v.replace(/(^\w|[.!?]\s+\w)/g, c => c.toUpperCase());
+            case "characters": return v.toUpperCase();
+            default: return v;
+          }
+        };
+        const next = transform(val);
+        if (next !== val) {
+          q.value = next;
+        }
+      });
+      return m;
+    } catch (e) { console.error("[DFP] Model error:", e); return null; }
   }, [enrichedSurveyJson, resetKey]);
 
   useEffect(() => { survey?.applyTheme(dark ? LayeredDarkPanelless : LayeredLightPanelless); }, [dark, survey]);
@@ -302,6 +341,24 @@ export default function DynamicFormPage() {
       let activeLayers: { email: string; name: string; role: string }[] = [];
       let resolvedLayerCount = (cfg.NumberOfApprovalLayer as number | undefined) ?? 0;
       const token = tokenRef.current;
+      const formId = String(cfg.FormID || "");
+
+      // Upload signature images to "Signature Images" document library
+      // Replace base64 data URIs with uploaded file URLs for SP image columns
+      if (token) {
+        for (const [k, v] of Object.entries(raw)) {
+          if (typeof v === "string" && v.startsWith("data:image/")) {
+            try {
+              const imageUrl = await uploadSignatureImage(token, formId, "submission", v);
+              raw[k] = { Url: imageUrl, Description: "Signature" };
+            } catch (e) {
+              console.warn("[DFP] signature upload failed for", k, (e as Error).message);
+              // Keep the base64 value as fallback
+            }
+          }
+        }
+      }
+
       let approvalRules = null;
       try { approvalRules = cfg.ApprovalRules ? JSON.parse(cfg.ApprovalRules as string) : null; } catch {}
       if (approvalRules?.conditionField && approvalRules?.rules?.length) {
@@ -319,7 +376,14 @@ export default function DynamicFormPage() {
           body[`${k}_Response`] = (v as Record<string, unknown>).html;
           body[`${k}_Json`] = typeof (v as Record<string, unknown>).json === "string" ? (v as Record<string, unknown>).json : JSON.stringify((v as Record<string, unknown>).json);
         } else if (Array.isArray(v)) { body[k] = JSON.stringify(v); }
-        else if (v && typeof v === "object") { body[k] = JSON.stringify(v); }
+        else if (v && typeof v === "object") {
+          // Pass SP complex field values through as objects (e.g. Url, Lookup)
+          if ("Url" in (v as Record<string, unknown>)) {
+            body[k] = v;
+          } else {
+            body[k] = JSON.stringify(v);
+          }
+        }
         else { body[k] = v; }
       }
       body.SubmittedAt = new Date().toISOString();
@@ -373,6 +437,11 @@ export default function DynamicFormPage() {
   const isPublicForm = formData?.formConfig?.IsPublic !== false;
   const formTitle = String(formData?.formConfig?.Title || formData?.surveyJson?.title || "Form");
   const formVersion = String(formData?.formConfig?.CurrentVersion || "1.0");
+  const showBanner = (formData?.meta?.showBanner as boolean) !== false;
+  const isoStandardsText = (formData?.meta?.isoStandards as string) || "ISO 9001 · ISO 14001 · ISO 45001";
+  const companiesText = (formData?.meta?.companies as string) || "";
+  const companyLines = companiesText.split("\n").filter(Boolean);
+  const logoUrl = (formData?.meta?.logoUrl as string) || "";
 
   if (loading || (formData && !formData.surveyJson && !error)) return (
     <div style={{ minHeight: "100vh", background: t.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
@@ -417,6 +486,29 @@ export default function DynamicFormPage() {
           <span style={{ fontSize: 10, color: t.textMuted }}>v{formVersion}</span>
         </div>
       </header>
+
+      {showBanner && (
+        <div style={{ borderBottom: `1px solid ${t.border}`, background: t.cardBg }}>
+          <div style={{ background: `linear-gradient(135deg,${t.purpleDark},${t.purple})`, padding: "16px 24px" }}>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>{isoStandardsText}</div>
+            <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 17, color: "#fff" }}>{formTitle}</div>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              <tr style={{ borderBottom: `1px solid ${t.border}` }}>
+                <td style={{ width: 140, borderRight: `1px solid ${t.border}`, background: t.offWhite, padding: "9px 14px", verticalAlign: "middle", textAlign: "center" }}>
+                  <img src={logoUrl || "/logo-48.png"} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: 42, objectFit: "contain" }} />
+                </td>
+                <td style={{ padding: "12px 16px", fontWeight: 700, fontSize: 13, color: t.textPrimary }}>
+                  {companyLines.length > 0
+                    ? companyLines.map((line, i) => <div key={i} style={i > 0 ? { marginTop: 4 } : undefined}>{line}</div>)
+                    : "PMW INTERNATIONAL BERHAD"}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 24px 88px", animation: "fadeUp .3s ease" }}>
         {submitStatus === "success" ? (

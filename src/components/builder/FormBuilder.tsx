@@ -4,11 +4,12 @@
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Survey } from "survey-react-ui";
-import { Model } from "survey-core";
+import { Model, Serializer } from "survey-core";
 import "survey-core/survey-core.min.css";
 import type { SurveyJson, FormBuilderField } from "../../types/index";
 import { QUESTION_TYPES, TYPE_GROUPS, createQuestion, buildSurveyJson, validateFields, getSpColumnKind } from "../../utils/FormBuilderEngine";
 import { buildQuestionTree, removeFieldRecursive, duplicateFieldRecursive, moveFieldIntoPanel, addFieldToPanel, findFieldById, updateField, flattenFieldTree } from "../../utils/FormBuilderEngine";
+import { registerSignaturePad } from "../../utils/SignaturePad";
 import { C } from "./constants";
 import "./FormBuilder.css";
 
@@ -20,7 +21,6 @@ import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PreviewIcon from "@mui/icons-material/Preview";
 
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
@@ -90,6 +90,19 @@ import BarChartIcon from "@mui/icons-material/BarChart";
 import SpeedIcon from "@mui/icons-material/Speed";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+
+// ── Register autocapitalize as a custom SurveyJS property ─────────────────
+// ── Register custom SurveyJS widgets and properties ────────────────────
+registerSignaturePad();
+
+if (!Serializer.findProperty("text", "autocapitalize")) {
+  Serializer.addProperty("text", {
+    name: "autocapitalize",
+    category: "general",
+    choices: ["none", "sentences", "words", "characters"],
+    default: "none",
+  });
+}
 
 // ── Atoms ─────────────────────────────────────────────────────────────
 const Pill = ({ children, color = C.purple, bg = C.purplePale }: { children: React.ReactNode; color?: string; bg?: string }) =>
@@ -1141,6 +1154,9 @@ function PropertyPanel({ field, allFields, onChange, onSurveySettingsChange, sur
     <div style={{ flex: 1, padding: "14px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <PropRow label="Form title"><Input value={(surveySettings.title as string) || ""} onChange={v => onSurveySettingsChange?.({ ...surveySettings, title: v })} placeholder="Form title" /></PropRow>
+        <PropRow label="Show form title">
+          <Toggle checked={(surveySettings.titleLocation as string) !== "hidden"} onChange={v => onSurveySettingsChange?.({ ...surveySettings, titleLocation: v ? ((surveySettings.titleLocation as string) === "hidden" ? "top" : surveySettings.titleLocation) : "hidden" })} label={(surveySettings.titleLocation as string) !== "hidden" ? "Visible" : "Hidden"} />
+        </PropRow>
         <PropRow label="Form description"><Textarea value={(surveySettings.description as string) || ""} onChange={v => onSurveySettingsChange?.({ ...surveySettings, description: v })} rows={2} placeholder="Optional description" /></PropRow>
         <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginTop: 4 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Text Formatting</div>
@@ -1206,6 +1222,7 @@ function PropertyPanel({ field, allFields, onChange, onSurveySettingsChange, sur
         <PropRow label="Description / hint" span><Input value={field.description || ""} onChange={v => onChange({ description: v })} placeholder="Optional helper text" /></PropRow>
         {!["html", "dynamicmatrix", "file"].includes(field.type) && <DefaultValueEditor field={field} onChange={onChange} />}
         {field.type === "text" && <PropRow label="Input type"><Select value={field.inputType || "text"} onChange={v => onChange({ inputType: v })} options={[{ value: "text", label: "Text" }, { value: "email", label: "Email" }, { value: "number", label: "Number" }, { value: "date", label: "Date" }, { value: "datetime-local", label: "Date & Time" }, { value: "tel", label: "Phone" }, { value: "url", label: "URL" }, { value: "password", label: "Password" }]} /></PropRow>}
+        {field.type === "text" && (!field.inputType || field.inputType === "text") && <PropRow label="Autocapitalize"><Select value={field.autocapitalize || "none"} onChange={v => onChange({ autocapitalize: v as "none" | "sentences" | "words" | "characters" })} options={[{ value: "none", label: "None" }, { value: "sentences", label: "Sentences" }, { value: "words", label: "Words" }, { value: "characters", label: "Characters (ALL CAPS)" }]} /></PropRow>}
         <FieldTypeProps field={field} onChange={onChange} />
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
           {field.type !== "html" && <Toggle checked={!!field.isRequired} onChange={v => onChange({ isRequired: v })} label="Required field" />}
@@ -1261,41 +1278,63 @@ function JsonPreview({ json, collapsed, onToggle }: { json: SurveyJson; collapse
 
 // ── Live Preview Modal ────────────────────────────────────────────────
 function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" }: { json: SurveyJson; onClose: () => void; showBanner?: boolean; meta?: Record<string, unknown>; device?: "desktop" | "tablet" | "mobile" }) {
+  const dataRef = useRef<Record<string, unknown>>({});
   const modelRef = useRef<Model | null>(null);
-  const jsonStrRef = useRef<string>("");
+  const fingerprintRef = useRef("");
 
-  // Create model once on first render
-  if (!modelRef.current) {
+  // Only recreate the SurveyJS model when the JSON structure actually changes.
+  // Using a stable ref prevents React re-renders from destroying the model
+  // instance, which was causing typed values to reset in the preview.
+  const currentFingerprint = JSON.stringify(json);
+  if (currentFingerprint !== fingerprintRef.current) {
+    fingerprintRef.current = currentFingerprint;
     try {
-      modelRef.current = new Model(json);
+      const m = new Model(json);
+      // Restore preview data for questions that still exist
+      for (const [key, val] of Object.entries(dataRef.current)) {
+        if (m.getQuestionByName(key)) {
+          m.setValue(key, val);
+        }
+      }
+      // Track data changes so they survive JSON updates
+      m.onValueChanged.add((_, options) => {
+        dataRef.current[options.name] = options.value;
+      });
+      // Autocapitalize hook
+      m.onValueChanged.add((_, options) => {
+        const q = m.getQuestionByName(options.name);
+        if (!q || q.getType() !== "text") return;
+        const mode = (q as Record<string, unknown>).autocapitalize as string | undefined;
+        if (!mode || mode === "none") return;
+        const val = options.value;
+        if (typeof val !== "string") return;
+        const transform = (v: string) => {
+          switch (mode) {
+            case "words": return v.replace(/\b\w/g, c => c.toUpperCase());
+            case "sentences": return v.replace(/(^\w|[.!?]\s+\w)/g, c => c.toUpperCase());
+            case "characters": return v.toUpperCase();
+            default: return v;
+          }
+        };
+        const next = transform(val);
+        if (next !== val) {
+          q.value = next;
+        }
+      });
       if (json.labelPosition) {
-        modelRef.current.questionTitleLocation = json.labelPosition as "top" | "bottom" | "left";
+        m.questionTitleLocation = json.labelPosition as "top" | "bottom" | "left";
       }
-      jsonStrRef.current = JSON.stringify(json);
-    } catch (e) { console.error("Preview model error:", e); }
-  }
-
-  // Update model structure when JSON content changes, preserving user data
-  const jsonStr = JSON.stringify(json);
-  if (jsonStr !== jsonStrRef.current && modelRef.current) {
-    const currentData = { ...modelRef.current.data };
-    modelRef.current.fromJSON(json);
-    // Restore data for questions that still exist
-    for (const [key, val] of Object.entries(currentData)) {
-      if (modelRef.current.getQuestionByName(key)) {
-        modelRef.current.setValue(key, val);
-      }
-    }
-    if (json.labelPosition) {
-      modelRef.current.questionTitleLocation = json.labelPosition as "top" | "bottom" | "left";
-    }
-    jsonStrRef.current = jsonStr;
+      modelRef.current = m;
+    } catch (e) { console.error("Preview model error:", e); modelRef.current = null; }
   }
 
   const model = modelRef.current;
   if (!model) return null;
   const formTitle = json?.title || "Form Preview";
   const isoStandards = (meta?.isoStandards as string) || "ISO 9001 · ISO 14001 · ISO 45001";
+  const companies = (meta?.companies as string) || "";
+  const companyLines = companies.split("\n").filter(Boolean);
+  const logoUrl = (meta?.logoUrl as string) || "";
   const deviceWidth = device === "desktop" ? 760 : device === "tablet" ? 500 : 340;
 
   return <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
@@ -1316,8 +1355,14 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <tbody>
             <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-              <td style={{ width: 140, borderRight: `1px solid ${C.border}`, background: C.offWhite, padding: "9px 14px", fontWeight: 600, fontSize: 10, color: C.textSecond, textTransform: "uppercase", letterSpacing: ".04em", verticalAlign: "middle" }}><span style={{ fontSize: 18, color: '#6264A7' }}>📋</span></td>
-              <td style={{ padding: "12px 16px", fontWeight: 700, fontSize: 13, color: C.textPrimary }}>PMW INTERNATIONAL BERHAD</td>
+              <td style={{ width: 140, borderRight: `1px solid ${C.border}`, background: C.offWhite, padding: "9px 14px", verticalAlign: "middle", textAlign: "center" }}>
+                <img src={logoUrl || "/logo-128.png"} alt="Company Logo" style={{ maxWidth: "100%", maxHeight: 42, objectFit: "contain" }} />
+              </td>
+              <td style={{ padding: "12px 16px", fontWeight: 700, fontSize: 13, color: C.textPrimary }}>
+                {companyLines.length > 0
+                  ? companyLines.map((line, i) => <div key={i} style={i > 0 ? { marginTop: 4 } : undefined}>{line}</div>)
+                  : "PMW INTERNATIONAL BERHAD"}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -1340,7 +1385,7 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
         ["--sjs-editorpanel-cornerRadius" as string]: json.borderRadius || "8px",
         ["--sjs-error-backcolor" as string]: json.errorColor ? `${json.errorColor}1A` : "#FEE2E2",
         ["--sjs-error-forecolor" as string]: json.errorColor || "#DC2626",
-      } as React.CSSProperties}><Survey model={model} /></div>
+      } as React.CSSProperties}><style>{`.fb-preview-wrap .sd-container-modern>.sd-title{text-align:center!important}`}</style><Survey key={fingerprintRef.current} model={model} /></div>
       <div style={{ padding: "10px 20px", borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.textMuted, textAlign: "center", background: C.offWhite }}>Preview only — submissions are not saved</div>
     </div>
   </div>;
@@ -1620,7 +1665,9 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
   if (selectedField) selectedFieldRef.current = selectedField;
 
   const surveyJson = useMemo(() => buildSurveyJson(fields, surveySettings), [fields, surveySettings]);
-  useEffect(() => { if (onChange) onChange(surveyJson); }, [surveyJson, onChange]);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => { if (onChangeRef.current) onChangeRef.current(surveyJson); }, [surveyJson]);
 
   const addField = useCallback((td: typeof QUESTION_TYPES[number], atIndex?: number) => {
     const q = createQuestion(td);
@@ -1719,7 +1766,6 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
       {/* Toolbar */}
       <div className="fb-toolbar">
         <div className="fb-toolbar-left">
-          <button onClick={_onClose} title="Back to Dashboard" className="fb-back-btn"><ArrowBackIcon style={{ fontSize: 14 }} /> Home</button>
           <Pill>{fields.length} field{fields.length !== 1 ? "s" : ""}</Pill>
           {undoCount > 0 && (
             <button onClick={handleUndo} className="fb-undo-btn" title={`Undo (${undoCount})`}>

@@ -29,6 +29,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import HistoryIcon from "@mui/icons-material/History";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import {
   slugify,
@@ -173,6 +175,7 @@ export default function AdminFormBuilder() {
     slug: "",
     isoStandards: "ISO 9001 · ISO 14001 · ISO 45001",
     companies: "PMW INDUSTRIES SDN BHD\nPMW CONCRETE INDUSTRIES SDN BHD\nPMW LIGHTING INDUSTRIES SDN BHD\nPMW WINABUMI SDN BHD",
+    logoUrl: "",
   });
   const [showBanner, setShowBanner] = useState(true);
   const [isPublic, setIsPublic] = useState(true);
@@ -189,6 +192,9 @@ export default function AdminFormBuilder() {
   const prevSurveyRef = useRef<SurveyJson | null>(null);
   const [sidebarTab, setSidebarTab] = useState("meta");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const sidebarTabsRef = useRef<HTMLDivElement>(null);
+  const [canSidebarScrollLeft, setCanSidebarScrollLeft] = useState(false);
+  const [canSidebarScrollRight, setCanSidebarScrollRight] = useState(false);
   const [versionHistory, setVersionHistory] = useState<{ FormVersion: string; PublishedBy?: string; PublishedAt?: string }[]>([]);
   const [viewingOld, setViewingOld] = useState<{ version: string; json: SurveyJson } | null>(null);
   const [newVersionMode, setNewVersionMode] = useState<"minor" | "major">("minor");
@@ -207,6 +213,30 @@ export default function AdminFormBuilder() {
   const showToast = useCallback((msg: string, type: string = "info") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  const checkSidebarScrollState = () => {
+    const el = sidebarTabsRef.current;
+    if (el) {
+      setCanSidebarScrollLeft(el.scrollLeft > 0);
+      setCanSidebarScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+    }
+  };
+
+  const sidebarScrollLeft = () => {
+    const el = sidebarTabsRef.current;
+    if (el) el.scrollBy({ left: -200, behavior: 'smooth' });
+  };
+
+  const sidebarScrollRight = () => {
+    const el = sidebarTabsRef.current;
+    if (el) el.scrollBy({ left: 200, behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    checkSidebarScrollState();
+    window.addEventListener('resize', checkSidebarScrollState);
+    return () => window.removeEventListener('resize', checkSidebarScrollState);
   }, []);
 
   const proposedVersion = useMemo(() => {
@@ -300,6 +330,7 @@ export default function AdminFormBuilder() {
       slug: (c.Slug as string) || slugify(c.Title as string),
       isoStandards: (data.meta as Record<string, unknown>)?.isoStandards as string || "ISO 9001 · ISO 14001 · ISO 45001",
       companies: (data.meta as Record<string, unknown>)?.companies as string || "PMW INDUSTRIES SDN BHD\nPMW CONCRETE INDUSTRIES SDN BHD\nPMW LIGHTING INDUSTRIES SDN BHD\nPMW WINABUMI SDN BHD",
+      logoUrl: ((data.meta as Record<string, unknown>)?.logoUrl as string) || "",
     });
     setShowBanner((data.meta as Record<string, unknown>)?.showBanner !== false);
     setOriginalVersion(c.CurrentVersion as string);
@@ -347,6 +378,7 @@ export default function AdminFormBuilder() {
       slug: "",
       isoStandards: "ISO 9001 · ISO 14001 · ISO 45001",
       companies: "PMW INDUSTRIES SDN BHD\nPMW CONCRETE INDUSTRIES SDN BHD\nPMW LIGHTING INDUSTRIES SDN BHD\nPMW WINABUMI SDN BHD",
+      logoUrl: "",
     });
     setNumLayers(0);
     setLayers(Array.from({ length: 5 }, () => ({ email: "", name: "" })));
@@ -519,7 +551,7 @@ export default function AdminFormBuilder() {
         slug: meta.slug,
         version,
         surveyJson: usedJson,
-        meta: { isoStandards: meta.isoStandards, companies: meta.companies, formId: meta.formId, formVersion: version, showBanner },
+        meta: { isoStandards: meta.isoStandards, companies: meta.companies, formId: meta.formId, formVersion: version, showBanner, logoUrl: meta.logoUrl },
         changedBy: userEmail,
       });
       pLog(`Version saved`, "ok");
@@ -639,7 +671,7 @@ export default function AdminFormBuilder() {
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <button
             type="button"
-            onClick={() => navigate("/adminhomepage")}
+            onClick={() => { window.location.assign("/"); }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -785,40 +817,86 @@ export default function AdminFormBuilder() {
             readOnly={!!viewingOld}
             token={tokenRef.current || undefined}
             showBanner={showBanner}
-            meta={{ isoStandards: meta.isoStandards, companies: meta.companies, formTitle: meta.formTitle }}
+            meta={{ isoStandards: meta.isoStandards, companies: meta.companies, formTitle: meta.formTitle, logoUrl: meta.logoUrl }}
           />
         </div>
 
         {sidebarOpen && (
           <div style={{ width: 300, flexShrink: 0, borderLeft: `1px solid ${C.border}`, background: C.white, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ display: "flex", overflowX: "auto", gap: 6, padding: "8px 10px", borderBottom: `1px solid ${C.border}`, scrollbarWidth: "none" }}>
-              {sidebarTabs.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setSidebarTab(t.id)}
-                  style={{
-                    flex: "0 0 auto",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    height: 30,
-                    border: `1px solid ${sidebarTab === t.id ? C.purple : C.border}`,
-                    borderRadius: 7,
-                    background: sidebarTab === t.id ? C.purplePale : C.white,
-                    color: sidebarTab === t.id ? C.purple : C.textSecond,
-                    fontSize: 12,
-                    fontWeight: sidebarTab === t.id ? 600 : 400,
-                    cursor: "pointer",
-                    padding: "0 12px",
-                    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-                    whiteSpace: "nowrap",
-                  }}
-                  onMouseEnter={(e) => { if (sidebarTab !== t.id) { e.currentTarget.style.background = "#F9FAFB"; e.currentTarget.style.borderColor = C.purple; e.currentTarget.style.color = C.purple; } }}
-                  onMouseLeave={(e) => { if (sidebarTab !== t.id) { e.currentTarget.style.background = C.white; e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textSecond; } }}
-                >
-                  {t.icon} {t.label}
-                </button>
-              ))}
+            <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${C.border}` }}>
+              <button
+                onClick={sidebarScrollLeft}
+                style={{
+                  visibility: canSidebarScrollLeft ? 'visible' : 'hidden',
+                  flexShrink: 0,
+                  width: 24,
+                  height: 24,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: C.white,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  marginLeft: 4,
+                  color: C.textSecond,
+                }}
+              >
+                <ChevronLeftIcon style={{ fontSize: 16 }} />
+              </button>
+              <div
+                ref={sidebarTabsRef}
+                onScroll={checkSidebarScrollState}
+                style={{ display: "flex", overflowX: "auto", gap: 6, padding: "8px 6px", scrollbarWidth: "none", flex: 1 }}
+              >
+                {sidebarTabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSidebarTab(t.id)}
+                    style={{
+                      flex: "0 0 auto",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      height: 30,
+                      border: `1px solid ${sidebarTab === t.id ? C.purple : C.border}`,
+                      borderRadius: 7,
+                      background: sidebarTab === t.id ? C.purplePale : C.white,
+                      color: sidebarTab === t.id ? C.purple : C.textSecond,
+                      fontSize: 12,
+                      fontWeight: sidebarTab === t.id ? 600 : 400,
+                      cursor: "pointer",
+                      padding: "0 12px",
+                      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+                      whiteSpace: "nowrap",
+                    }}
+                    onMouseEnter={(e) => { if (sidebarTab !== t.id) { e.currentTarget.style.background = "#F9FAFB"; e.currentTarget.style.borderColor = C.purple; e.currentTarget.style.color = C.purple; } }}
+                    onMouseLeave={(e) => { if (sidebarTab !== t.id) { e.currentTarget.style.background = C.white; e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textSecond; } }}
+                  >
+                    {t.icon} {t.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={sidebarScrollRight}
+                style={{
+                  visibility: canSidebarScrollRight ? 'visible' : 'hidden',
+                  flexShrink: 0,
+                  width: 24,
+                  height: 24,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: C.white,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  marginRight: 4,
+                  color: C.textSecond,
+                }}
+              >
+                <ChevronRightIcon style={{ fontSize: 16 }} />
+              </button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "13px 13px 24px" }}>
               {sidebarTab === "meta" && (
@@ -897,6 +975,9 @@ export default function AdminFormBuilder() {
                       rows={4}
                       style={{ ...inp, height: "auto", padding: "7px 10px", resize: "vertical", lineHeight: 1.7 }}
                     />
+                  </FB>
+                  <FB label="Logo URL" hint="Custom logo URL for the banner (defaults to /logo-128.png)">
+                    <TextInput value={meta.logoUrl} onChange={v => setM("logoUrl", v)} placeholder="https://example.com/logo.png" />
                   </FB>
                   <FB label="Header / Companies banner" hint="Show or hide the ISO + company banner at the top of the form.">
                     <div style={{

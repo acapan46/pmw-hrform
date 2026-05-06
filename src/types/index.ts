@@ -106,6 +106,7 @@ export interface FormBuilderField {
   description: string;
   // Common props for ALL field types
   inputType?: string;
+  autocapitalize?: "none" | "sentences" | "words" | "characters";
   placeholder?: string;
   rows?: number;
   choices?: (string | { value: string; text: string })[];

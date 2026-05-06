@@ -5,7 +5,7 @@
 - Entry: `src/main.tsx` → `BrowserRouter` → `AuthProvider` → `App.tsx`
 - Theme: `src/theme/index.ts` (MUI custom, #0078D4 primary / #6264A7 secondary)
 - Assets: `public/` (favicon, icons.svg), `src/assets/` (hero.png)
-- **Sub-instructions**: `src/utils/AGENTS.md` and `src/components/builder/AGENTS.md` have additional hard-earned context.
+- **Sub-instructions**: `src/utils/AGENTS.md`, `src/components/builder/AGENTS.md`, `src/components/dashboard/AGENTS.md`, `src/pages/AGENTS.md`, `api/AGENTS.md` have additional hard-earned context.
 
 ## Commands (run from root)
 ```bash
@@ -43,10 +43,12 @@ States: `checking` | `choice` | `guest` | `loading` | `ready` | `wrong_tenant` |
 - `"/admin/builder/:formTitle"` → `AdminFormBuilder` (loads specific form for editing)
 - `"/admin/approvals"` → `ApprovalDashboard` (approval workflow)
 - `"/admin/responses/:formTitle"` → `ResponseViewer` (submission responses)
-- `"*"` → Dashboard with `Header`, `StatsRow`, `ListSummaryCards`, `Toolbar`, `SubmissionRow`
-- `HomePage.tsx` — Landing page for unauthenticated users (MSAL sign-in / guest choice)
+- `"/adminhomepage"` → `AdminHomePage` (explicit dashboard route)
+- `"*"` → `AdminHomePage` (catch-all: Header, StatsRow, ListSummaryCards, Toolbar, SubmissionRow)
+- Auth screens (`ChoiceScreen`, `GuestLanding`, `WrongTenantScreen`, etc.) are rendered directly in `App.tsx` before `<Routes>` — NOT via `HomePage.tsx`
+- `HomePage.tsx` is **dead code** — not imported by `App.tsx`; the real choice screen is `ChoiceScreen.tsx`
 - Header "Form Builder" button navigates to `/admin/builder` (not a modal)
-- The old `<Dialog>` FormBuilder in the `*` route is dead code — `builderOpen` is never set to `true`
+- The old `<Dialog>` FormBuilder in `AdminHomePage` is dead code — `builderOpen` is never set to `true`
 
 ## API Routes (Vercel-style serverless)
 - `api/form-config.ts` — Public form config fetcher (used by unauthenticated users)
@@ -78,7 +80,8 @@ States: `checking` | `choice` | `guest` | `loading` | `ready` | `wrong_tenant` |
 | `number`, `currency`, `slider`, `starrating`, `nps`, `duration`, `formula`, `unitconverter`, `counter`, `scorecard`, `rating` | 9 | Number |
 | `dynamicmatrix`, `tableinput` | — | `_Html` (RichText) + `_Json` (Note) |
 | `ranking`, `budgetallocator`, `rangeslider`, `daterange` | 3 | Note (stores JSON) |
-| Layout/display types, `file`, `imageupload`, `signaturepad`, `audiorecorder` | null | No column |
+| `signaturepad` | 11 | Image (URL/Hyperlink, DisplayFormat:2) |
+| Layout/display types, `file`, `imageupload`, `audiorecorder` | null | No column |
 
 ### SharePoint Choice Source (`spChoicesSource`)
 - Choice fields can pull values from existing SP list columns via `spChoicesSource = { list, column, multiSelect }`
@@ -153,23 +156,35 @@ States: `checking` | `choice` | `guest` | `loading` | `ready` | `wrong_tenant` |
 - **NO `useMemo`/`useCallback`** — React 19 makes these unnecessary; remove when touching code
 - **NO `console.log/warn/error` in production** — replace with proper logging or remove when touching code
 - **NO `dangerouslySetInnerHTML` without audit** — `DetailModal.tsx` uses it; verify XSS safety if user input reaches it
-- **NO dead code** — remove unused `.backup`, `.txt`, dead pages when found
+- **NO dead code** — remove unused `.backup`, `.txt`, dead pages when found. `references/` directory at root is stale JS copies — don't import from it.
 - **NO `@ts-ignore` / `@ts-expect-error`** — never suppress type errors
 
 ## Conventions
 - **PowerShell**: use `workdir` parameter with `bash` tool; PowerShell does NOT support `&&` or native `grep`/`ls` commands
 - **File paths**: use full Windows paths or forward slashes (C:/Users/user/pmw-hrform/src/...)
-- **TypeScript**: tsconfig uses project references (`tsconfig.json` → `tsconfig.app.json` + `tsconfig.node.json`). Run `tsc -b` for type-checking.
+- **TypeScript**: tsconfig uses project references (`tsconfig.json` → `tsconfig.app.json` + `tsconfig.node.json`). Run `tsc -b` for type-checking. `"erasableSyntaxOnly": true` — no runtime `enum`/`namespace`; use `const` objects or string unions.
 - **ESLint**: NOT type-checked. Many pre-existing errors exist—focus on new errors you introduce.
 - **React 19**: no `forwardRef` needed, no manual memoization (`useMemo`/`useCallback`)
 - **MUI v9.0.0**: uses `Grid` (not `Grid2`); `slotProps` replaces `PaperProps` on Dialog
-- **All component files**: use `import type` for type-only imports (`verbatimModuleSyntax`)
+- **Prefer `import type`**: for type-only imports (`verbatimModuleSyntax`); many files still use plain `import` — fix when touching
 - **`.env.local`** at app root contains Azure AD credentials (`VITE_AZURE_*`) and SP URL (`VITE_SP_SITE_URL`). **Never commit or expose these values.**
   - `VITE_AZURE_CLIENT_ID`, `VITE_AZURE_TENANT_ID`, `VITE_AZURE_AUTHORITY`, `VITE_SP_SITE_URL`
   - `VITE_AZURE_TENANT_ID` is used for tenant validation in auth flow
+  - See `.env.example` for the required variable names (no values).
 - **Verifying changes**: Run `npm run build` before claiming work is done. `npm run lint` has many pre-existing warnings—check only your changed files with `lsp_diagnostics`.
 
 ## Notes
 - **No CI/CD** — zero GitHub Actions, Docker, or deployment configs
 - **No tests** — zero unit, integration, or E2E tests; no vitest/jest/playwright in dependencies
 - **No path aliases** — all imports use relative paths (`../../utils/...`); vite.config.ts has no `resolve.alias`
+
+## Signature Upload Flow
+Signatures are uploaded as PNG files to a `Signature Images` SharePoint document library during form submission. The flow:
+1. User signs in the custom `SignaturePad.tsx` widget → base64 data URI stored in `question.value`
+2. On submit (`DynamicFormPage.tsx` `onComplete`), signature fields (values starting with `data:image/`) are detected
+3. `uploadSignatureImage()` in `formBuilderSP.ts` converts base64 → binary, determines daily counter, and calls `spUploadFile()` to upload to the library
+4. File naming: `{action}-{formId}-{yymmdd}{xxx}.png` (e.g., `submission-HR001-260507001.png`)
+5. The returned `ServerRelativeUrl` replaces the base64 value in the submission body
+6. SP image column (kind 11, `DisplayFormat: 2`) renders the URL as an image
+
+**Future actions** (`approval`, `reject`) will use the same `uploadSignatureImage()` with different action prefixes. The `action` parameter in `ApprovalLayer` and `triggerApprovalNotification` already supports these values.

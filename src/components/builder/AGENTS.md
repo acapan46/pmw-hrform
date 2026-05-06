@@ -38,6 +38,9 @@ AdminFormBuilder.tsx (page — route: /admin/builder)
 ## Form Builder Features
 - **SP Choice Source**: Choice fields (dropdown, radiogroup, checkbox, buttongroup) can pull values from existing SharePoint list columns via `spChoicesSource` property. Toggle "Manual" / "SharePoint List" in Options tab.
 - **Matrix Column Editor**: `dynamicmatrix` fields have a per-column editor in Options tab — set cell type (text/dropdown/date/number/checkbox/boolean), manual choices, or SP choice source per column.
+- **Signature Widget**: `signaturepad` uses a custom modal-based widget (`src/utils/SignaturePad.tsx`) registered via `ReactQuestionFactory`. Click to open modal → sign → save/lock. Image stored as base64, uploaded to `Signature Images` doc library on submit.
+- **Logo Setter**: Banner logo URL configurable in the form meta sidebar; defaults to `/logo-128.png`.
+- **Form Title Toggle**: "Show form title" toggle in Form Settings controls SurveyJS title visibility (sets `titleLocation: "hidden"`). Title is centered via CSS when visible.
 
 ## Anti-Patterns
 - `FormBuilder.tsx` has `eslint-disable` and `any[]` usage — fix when touching

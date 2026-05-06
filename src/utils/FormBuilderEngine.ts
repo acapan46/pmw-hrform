@@ -40,33 +40,6 @@ export const QUESTION_TYPES: QuestionTypeDefinition[] = [
     defaultProps: { labelTrue: "Yes", labelFalse: "No" },
   },
   {
-    type: "email",
-    label: "Email",
-    icon: "📧",
-    group: "Basic",
-    description: "Email address input with validation",
-    spColumnKind: 2,
-    defaultProps: { inputType: "email", placeholder: "" },
-  },
-  {
-    type: "url",
-    label: "URL",
-    icon: "🔗",
-    group: "Basic",
-    description: "Web address input with validation",
-    spColumnKind: 2,
-    defaultProps: { inputType: "url", placeholder: "" },
-  },
-  {
-    type: "tel",
-    label: "Phone",
-    icon: "📱",
-    group: "Basic",
-    description: "Phone number input",
-    spColumnKind: 2,
-    defaultProps: { inputType: "tel", placeholder: "", defaultCountry: "MY" },
-  },
-  {
     type: "comment",
     label: "Long Text",
     icon: "📄",
@@ -252,7 +225,7 @@ export const QUESTION_TYPES: QuestionTypeDefinition[] = [
     icon: "✍️",
     group: "Advanced",
     description: "Digital signature pad",
-    spColumnKind: null,
+    spColumnKind: 11,
     defaultProps: {
       signatureWidth: 400,
       signatureHeight: 200,
@@ -721,12 +694,16 @@ export function validateFields(
 
       const choiceTypes = ["dropdown", "radiogroup", "checkbox"];
       if (choiceTypes.includes(f.type)) {
-        const choices = f.choices ?? [];
-        if (choices.length < 2) {
-          errors.push({
-            id: f._id,
-            msg: "Choice fields must have at least 2 options",
-          });
+        // Skip local choices check if pulling from SharePoint (both list and column must be set)
+        const spSource = (f as unknown as Record<string, unknown>).spChoicesSource as { list?: string; column?: string } | undefined;
+        if (!spSource?.list || !spSource?.column) {
+          const choices = f.choices ?? [];
+          if (choices.length < 2) {
+            errors.push({
+              id: f._id,
+              msg: "Choice fields must have at least 2 options",
+            });
+          }
         }
       }
 
@@ -982,10 +959,11 @@ export function buildQuestionTree(json: SurveyJson): FormBuilderField[] {
     const result: FormBuilderField[] = [];
     for (const el of elements) {
       if (el.type === "panel" && Array.isArray(el.elements)) {
-        const panel = { ...el, elements: walk(el.elements as Record<string, unknown>[]) } as unknown as FormBuilderField;
+        const panel = { ...el, _id: (el._id as string) || generateFieldId(), elements: walk(el.elements as Record<string, unknown>[]) } as unknown as FormBuilderField;
         result.push(panel);
       } else {
-        result.push(el as unknown as FormBuilderField);
+        const field = { ...el, _id: (el._id as string) || generateFieldId() } as unknown as FormBuilderField;
+        result.push(field);
       }
     }
     return result;
@@ -1065,6 +1043,7 @@ export function getSpColumnKind(
     6: 'Choice',
     8: 'Yes/No',
     9: 'Number',
+    11: 'Image',
     15: 'MultiChoice',
   };
   return { FieldTypeKind: kind, label: labels[kind] || 'Text' };

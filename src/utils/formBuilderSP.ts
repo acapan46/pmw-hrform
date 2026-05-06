@@ -197,7 +197,7 @@ export async function getSharePointChoices(
   if (!choices) {
     return [];
   }
-  return choices.results || choices || [];
+  return Array.isArray(choices) ? choices : (choices.results || []);
 }
 
 export async function getSharePointLists(token: string): Promise<{ title: string; id: string }[]> {
@@ -327,6 +327,7 @@ export async function addColumn(
     6: 'SP.FieldChoice',
     8: 'SP.Field',
     9: 'SP.FieldNumber',
+    11: 'SP.FieldUrl',
     15: 'SP.FieldMultiChoice',
   };
   const body: Record<string, unknown> = {
@@ -338,6 +339,9 @@ export async function addColumn(
   if (kind === 3 || multiLine) {
     body.NumberOfLines = 6;
     body.RichText = !!richText;
+  }
+  if (kind === 11) {
+    body.DisplayFormat = 2; // 2 = Image (0=Hyperlink, 1=Text)
   }
   if ((kind === 6 || kind === 15) && choices && choices.length > 0) {
     body.Choices = { results: choices };
@@ -1103,4 +1107,73 @@ export async function triggerApprovalNotification(
     console.warn('[triggerApprovalNotification] failed:', (e as Error).message);
     // Don't throw - email failures shouldn't block the workflow
   }
+}
+
+// ── Signature Image Upload ─────────────────────────────────────────────
+// Signatures are uploaded as PNG files to a "Signature Images" document
+// library and linked via a URL/Hyperlink column in the response list.
+//
+// File naming: {action}-{formId}-{yymmdd}{xxx}.png
+//   action  = "submission" | "approval" | "reject"
+//   formId  = form identifier
+//   yymmdd  = local date (2-digit year, 2-digit month, 2-digit day)
+//   xxx     = daily counter starting at 001
+
+const SIGNATURE_LIBRARY = "Signature Images";
+
+/** Get the next daily counter by checking existing files for today */
+async function getNextSignatureCounter(token: string, formId: string, action: string): Promise<string> {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const prefix = `${action}-${formId}-${yy}${mm}${dd}`;
+
+  try {
+    // List files matching today's prefix
+    const query = `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(SIGNATURE_LIBRARY)}')/rootfolder/files?$select=Name&$filter=startswith(Name,'${encodeURIComponent(prefix)}')&$orderby=Name desc&$top=1`;
+    const data = await spGet(token, query) as { value?: { Name?: string }[] };
+
+    const lastName = data.value?.[0]?.Name;
+    if (lastName) {
+      const match = lastName.match(/^.+(\d{3})\.png$/);
+      if (match) {
+        return String(parseInt(match[1], 10) + 1).padStart(3, '0');
+      }
+    }
+  } catch {
+    // Library might not exist yet — start at 001
+  }
+
+  return '001';
+}
+
+/**
+ * Upload a base64 signature image to the Signature Images document library.
+ * Returns the server-relative URL to the uploaded file.
+ */
+export async function uploadSignatureImage(
+  token: string,
+  formId: string,
+  action: "submission",
+  base64DataUrl: string,
+): Promise<string> {
+  // Strip the data URI prefix and convert to binary
+  const base64 = base64DataUrl.replace(/^data:image\/\w+;base64,/, '');
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const counter = await getNextSignatureCounter(token, formId, action);
+  const fileName = `${action}-${formId}-${yy}${mm}${dd}${counter}.png`;
+
+  const sitePath = new URL(SP_SITE_URL).pathname;
+  const result = await spUploadFile(token, SIGNATURE_LIBRARY, fileName, bytes) as { ServerRelativeUrl?: string };
+  return result.ServerRelativeUrl ?? `${sitePath}/${SIGNATURE_LIBRARY}/${fileName}`;
 }

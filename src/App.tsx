@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Routes, Route, useNavigate } from "react-router-dom";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import {
   useMsal,
   useIsAuthenticated,
@@ -380,7 +380,8 @@ if (decision === "guest") {
 
   const hasFilters = !!(search || listFilter || statusFilter !== "all" || submitterFilter);
 
-  const currentPath = window.location.pathname;
+  const location = useLocation();
+  const currentPath = location.pathname;
   const isFormRoute = currentPath.startsWith("/form/");
   const isAdminRoute = currentPath.startsWith("/admin/");
 
