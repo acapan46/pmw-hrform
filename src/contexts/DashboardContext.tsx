@@ -25,7 +25,6 @@ export interface DashboardContextValue {
   onSignOut: () => void;
   onSwitchAccount: () => void;
   onOpenBuilder: () => void;
-  onOpenSessions: () => void;
   onEditForm: (listTitle: string) => void;
 }
 
@@ -50,5 +49,3 @@ export function DashboardProvider({ children, ...value }: DashboardProviderProps
     </DashboardContext.Provider>
   );
 }
-
-export default DashboardContext;

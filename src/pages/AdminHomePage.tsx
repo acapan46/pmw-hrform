@@ -35,7 +35,6 @@ export default function AdminHomePage() {
     onSignOut,
     onSwitchAccount,
     onOpenBuilder,
-    onOpenSessions,
     onEditForm,
   } = useDashboard();
   return (
@@ -46,7 +45,6 @@ export default function AdminHomePage() {
         onLogout={onSignOut}
         onSwitch={onSwitchAccount}
           onOpenBuilder={onOpenBuilder}
-          onOpenSessions={onOpenSessions}
         />
 
       <Box sx={{ maxWidth: 1280, mx: "auto", px: { xs: 2, sm: 3, md: 4 }, py: 4 }}>

@@ -254,6 +254,7 @@ export interface FormBuilderField {
   showPageNumber?: boolean;
   // Panel
   collapsible?: boolean;
+  collapsed?: boolean;
   // Repeater
   minRows?: number;
   maxRows?: number;

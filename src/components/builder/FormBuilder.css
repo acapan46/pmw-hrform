@@ -32,6 +32,11 @@
 .fb-preview-wrap .sd-root-modern { background: transparent !important; }
 .fb-preview-wrap .sd-container-modern { max-width: 100% !important; }
 
+/* Ensure inline layout (startWithNewLine: false) works inside panels */
+.fb-preview-wrap .sd-row,
+.approval-survey-preview .sd-row,
+.response-survey-preview .sd-row { display: flex !important; flex-wrap: wrap !important; }
+
 /* Pill component */
 .fb-pill {
   font-size: 10px;

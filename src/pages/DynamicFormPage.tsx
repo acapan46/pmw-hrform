@@ -61,8 +61,9 @@ const globalCss = (t: typeof LIGHT) => `
   @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-  .dfp-survey-wrap .sd-root-modern{background:transparent!important}
+   .dfp-survey-wrap .sd-root-modern{background:transparent!important}
 .dfp-survey-wrap .sd-container-modern>.sd-title{text-align:center!important}
+.dfp-survey-wrap .sd-row{display:flex!important;flex-wrap:wrap!important}
   ::-webkit-scrollbar{width:5px}
   ::-webkit-scrollbar-thumb{background:${t.purpleMid};border-radius:10px}
 `;

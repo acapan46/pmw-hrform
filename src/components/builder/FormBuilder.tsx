@@ -8,7 +8,7 @@ import { Model, Serializer } from "survey-core";
 import "survey-core/survey-core.min.css";
 import type { SurveyJson, FormBuilderField } from "../../types/index";
 import { QUESTION_TYPES, TYPE_GROUPS, createQuestion, buildSurveyJson, validateFields, getSpColumnKind } from "../../utils/FormBuilderEngine";
-import { buildQuestionTree, removeFieldRecursive, duplicateFieldRecursive, moveFieldIntoPanel, addFieldToPanel, findFieldById, updateField, flattenFieldTree } from "../../utils/FormBuilderEngine";
+import { buildQuestionTree, removeFieldRecursive, duplicateFieldRecursive, moveFieldIntoPanel, addFieldToPanel, findFieldById, updateField, flattenFieldTree, reorderFieldsRecursive, moveFieldToRoot } from "../../utils/FormBuilderEngine";
 import { registerSignaturePad } from "../../utils/SignaturePad";
 import { C } from "./constants";
 import "./FormBuilder.css";
@@ -638,7 +638,7 @@ function Palette({ onAdd }: { onAdd: (td: typeof QUESTION_TYPES[number]) => void
 }
 
 // ── Canvas ────────────────────────────────────────────────────────────
-function FieldCard({ field, index, selected, onSelect, onRemove, onDuplicate, onMoveUp, onMoveDown, isFirst, isLast, errors, onDragStart, onDragOver, onDrop, dragging: _dragging, onDropOnPanel, depth = 0, selectedId }: {
+function FieldCard({ field, index, selected, onSelect, onRemove, onDuplicate, onMoveUp, onMoveDown, isFirst, isLast, errors, onDragStart, onDragOver, onDrop, dragging: _dragging, onDropOnPanel, onRecursiveReorder, depth = 0, selectedId }: {
   field: FormBuilderField; index: number; selected: boolean; onSelect: (id: string) => void;
   onRemove: (id: string) => void; onDuplicate: (field: FormBuilderField) => void;
   onMoveUp: () => void; onMoveDown: () => void; isFirst: boolean; isLast: boolean;
@@ -646,6 +646,7 @@ function FieldCard({ field, index, selected, onSelect, onRemove, onDuplicate, on
   onDragOver: (e: React.DragEvent, i: number) => void; onDrop: (e: React.DragEvent, i: number) => void;
   dragging: boolean;
   onDropOnPanel?: (e: React.DragEvent, panelId: string) => void;
+  onRecursiveReorder?: (fromId: string, toId: string) => void;
   depth?: number;
   selectedId?: string | null;
 }) {
@@ -721,16 +722,22 @@ function FieldCard({ field, index, selected, onSelect, onRemove, onDuplicate, on
             onSelect={onSelect}
             onRemove={onRemove}
             onDuplicate={onDuplicate}
-            onMoveUp={() => {}}
-            onMoveDown={() => {}}
+            onMoveUp={childIdx > 0 && onRecursiveReorder ? () => onRecursiveReorder(child._id, field.elements![childIdx - 1]._id) : () => {}}
+            onMoveDown={childIdx < field.elements!.length - 1 && onRecursiveReorder ? () => onRecursiveReorder(child._id, field.elements![childIdx + 1]._id) : () => {}}
             isFirst={childIdx === 0}
             isLast={childIdx === field.elements!.length - 1}
             errors={errors}
-            onDragStart={onDragStart}
+            onDragStart={(e: React.DragEvent) => {
+              e.stopPropagation();
+              e.dataTransfer.setData("field_id", child._id);
+              e.dataTransfer.setData("from_panel", "true");
+              e.dataTransfer.effectAllowed = "move";
+            }}
             onDragOver={onDragOver}
             onDrop={onDrop}
             dragging={false}
             onDropOnPanel={onDropOnPanel}
+            onRecursiveReorder={onRecursiveReorder}
             depth={depth + 1}
             selectedId={selectedId}
           />
@@ -740,12 +747,14 @@ function FieldCard({ field, index, selected, onSelect, onRemove, onDuplicate, on
   </div>;
 }
 
-function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder, onAddFromPalette, errors, onDropOnPanel }: {
+function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder, onAddFromPalette, errors, onDropOnPanel, onRecursiveReorder, onMoveToRoot }: {
   fields: FormBuilderField[]; selectedId: string | null; onSelect: (id: string | null) => void;
   onRemove: (id: string) => void; onDuplicate: (field: FormBuilderField) => void;
   onReorder: (from: number, to: number) => void; onAddFromPalette: (td: typeof QUESTION_TYPES[number], atIndex?: number) => void;
   errors: { id: string; msg: string }[];
   onDropOnPanel?: (e: React.DragEvent, panelId: string) => void;
+  onRecursiveReorder?: (fromId: string, toId: string) => void;
+  onMoveToRoot?: (fieldId: string, atIndex: number) => void;
 }) {
   const dragIndexRef = useRef<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -766,6 +775,14 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
     setDraggingIndex(null);
     const pd = e.dataTransfer.getData("palette_type");
     if (pd) { try { onAddFromPalette(JSON.parse(pd), i); } catch { } dragIndexRef.current = null; return; }
+    // Handle field dragged out of a panel to the root canvas
+    const fieldId = e.dataTransfer.getData("field_id");
+    const fromPanel = e.dataTransfer.getData("from_panel") === "true";
+    if (fromPanel && fieldId && onMoveToRoot) {
+      onMoveToRoot(fieldId, i);
+      dragIndexRef.current = null;
+      return;
+    }
     if (dragIndexRef.current !== null && dragIndexRef.current !== i) onReorder(dragIndexRef.current, i);
     dragIndexRef.current = null;
   };
@@ -779,6 +796,12 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
     const pd = e.dataTransfer.getData("palette_type");
     if (pd) {
       try { onAddFromPalette(JSON.parse(pd), fields.length); } catch { }
+    }
+    // Handle field dragged out of a panel to the end of the canvas
+    const fieldId = e.dataTransfer.getData("field_id");
+    const fromPanel = e.dataTransfer.getData("from_panel") === "true";
+    if (fromPanel && fieldId && onMoveToRoot) {
+      onMoveToRoot(fieldId, fields.length);
     }
     dragIndexRef.current = null;
   };
@@ -807,7 +830,7 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
             onMoveUp={() => onReorder(i, i - 1)} onMoveDown={() => onReorder(i, i + 1)}
             isFirst={i === 0} isLast={i === fields.length - 1} errors={errors}
             onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop} dragging={draggingIndex === i}
-            onDropOnPanel={onDropOnPanel} selectedId={selectedId} />
+            onDropOnPanel={onDropOnPanel} onRecursiveReorder={onRecursiveReorder} selectedId={selectedId} />
         </React.Fragment>)}
         {/* Drop zone after last card — stable DOM */}
         <div
@@ -941,7 +964,8 @@ function FieldTypeProps({ field, onChange }: { field: FormBuilderField; onChange
     {field.type === "panel" && <>
       <PropRow label="Panel title" span><Input value={field.title || ""} onChange={v => onChange({ title: v })} placeholder="Section title" /></PropRow>
       <PropRow label="Description" span><Input value={field.description || ""} onChange={v => onChange({ description: v })} placeholder="Optional description" /></PropRow>
-      <Toggle checked={!!field.collapsible} onChange={v => onChange({ collapsible: v })} label="Collapsible" />
+      <Toggle checked={!!field.collapsible} onChange={v => onChange({ collapsible: v, collapsed: v ? !!field.collapsed : false })} label="Collapsible" />
+      {field.collapsible && <Toggle checked={!!field.collapsed} onChange={v => onChange({ collapsed: v })} label="Start collapsed" />}
     </>}
 
     {/* Boolean / Toggle / Consent: labelTrue / labelFalse */}
@@ -1382,14 +1406,15 @@ function PropertyPanel({ field, allFields, onChange, onSurveySettingsChange, sur
 // ── JSON Preview ──────────────────────────────────────────────────────
 function JsonPreview({ json, collapsed, onToggle }: { json: SurveyJson; collapsed: boolean; onToggle: () => void }) {
   const [copied, setCopied] = useState(false);
-  const text = JSON.stringify(json, null, 2);
+  const text = useMemo(() => JSON.stringify(json, null, 2), [json]);
+  const charCount = useMemo(() => JSON.stringify(json).length, [json]);
   const copy = () => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   return <div style={{ borderTop: `1px solid ${C.border}`, background: "#1F2937", height: collapsed ? 38 : 220, display: "flex", flexDirection: "column", overflow: "hidden", transition: "height 0.3s" }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 14px", height: 38, flexShrink: 0, cursor: "pointer" }} onClick={onToggle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <CodeIcon style={{ fontSize: 14, color: "#9CA3AF" }} />
         <span style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em" }}>SurveyJS JSON</span>
-        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{JSON.stringify(json).length} chars</span>
+        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{charCount} chars</span>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         {!collapsed && <button onClick={e => { e.stopPropagation(); copy(); }} style={{ fontSize: 10, color: copied ? "#6EE7B7" : "#9CA3AF", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" }}>{copied ? "Copied!" : "Copy JSON"}</button>}
@@ -1509,7 +1534,8 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
         ["--sjs-editorpanel-cornerRadius" as string]: json.borderRadius || "8px",
         ["--sjs-error-backcolor" as string]: json.errorColor ? `${json.errorColor}1A` : "#FEE2E2",
         ["--sjs-error-forecolor" as string]: json.errorColor || "#DC2626",
-      } as React.CSSProperties}><style>{`.fb-preview-wrap .sd-container-modern>.sd-title{text-align:center!important}`}</style><Survey key={fingerprintRef.current} model={model} /></div>
+      } as React.CSSProperties}><style>{`.fb-preview-wrap .sd-container-modern>.sd-title{text-align:center!important}
+.fb-preview-wrap .sd-row{display:flex!important;flex-wrap:wrap!important}`}</style><Survey key={fingerprintRef.current} model={model} /></div>
       <div style={{ padding: "10px 20px", borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.textMuted, textAlign: "center", background: C.offWhite }}>Preview only — submissions are not saved</div>
     </div>
   </div>;
@@ -1713,7 +1739,7 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
   }, []);
 
   // Undo/redo stacks
-  const MAX_HISTORY = 50;
+  const MAX_HISTORY = 20;
   const [undoStack, setUndoStack] = useState<FormBuilderField[][]>([]);
   const [redoStack, setRedoStack] = useState<FormBuilderField[][]>([]);
   const canUndo = undoStack.length > 0;
@@ -1833,6 +1859,16 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
     const [moved] = newFields.splice(from, 1);
     newFields.splice(to, 0, moved);
     pushHistory(newFields);
+  }, [pushHistory]);
+
+  /** Recursive reorder for fields inside panels (via field IDs) */
+  const handleRecursiveReorder = useCallback((fromId: string, toId: string) => {
+    pushHistory(reorderFieldsRecursive(fieldsRef.current, fromId, toId));
+  }, [pushHistory]);
+
+  /** Move a field out of a panel to the root canvas at a specific index */
+  const handleMoveToRoot = useCallback((fieldId: string, atIndex: number) => {
+    pushHistory(moveFieldToRoot(fieldsRef.current, fieldId, atIndex));
   }, [pushHistory]);
 
   /** Move a field into a panel via drag-and-drop */
@@ -1963,7 +1999,7 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
             <div className="fb-canvas-panel-hint">Drag to reorder</div>
           </div>
           <div className="fb-canvas-body">
-            <Canvas fields={fields} selectedId={selectedId} onSelect={id => setSelectedId(id)} onRemove={handleRemove} onDuplicate={handleDuplicate} onReorder={handleReorder} onAddFromPalette={addField} errors={errors} onDropOnPanel={handleDropOnPanel} />
+            <Canvas fields={fields} selectedId={selectedId} onSelect={id => setSelectedId(id)} onRemove={handleRemove} onDuplicate={handleDuplicate} onReorder={handleReorder} onAddFromPalette={addField} errors={errors} onDropOnPanel={handleDropOnPanel} onRecursiveReorder={handleRecursiveReorder} onMoveToRoot={handleMoveToRoot} />
           </div>
         </div>
         <div className="fb-property-panel-side">

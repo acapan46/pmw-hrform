@@ -12,10 +12,9 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import {
-  Settings as SettingsIcon,
-  Logout as LogoutIcon,
   Person as PersonIcon,
-  LockOutlined as LockIcon,
+  Logout as LogoutIcon,
+  Settings as SettingsIcon,
 } from "@mui/icons-material";
 import { useState } from "react";
 import RoleBadge from "./RoleBadge";
@@ -27,7 +26,6 @@ interface HeaderProps {
   onLogout: () => void;
   onSwitch: () => void;
   onOpenBuilder?: () => void;
-  onOpenSessions?: () => void;
 }
 
 export default function Header({
@@ -36,7 +34,6 @@ export default function Header({
   onLogout,
   onSwitch,
   onOpenBuilder,
-  onOpenSessions,
 }: HeaderProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -138,36 +135,7 @@ export default function Header({
                 Form Builder
               </Button>
             )}
-            {onOpenSessions && (
-              <Button
-                variant="outlined"
-                startIcon={<LockIcon />}
-                onClick={onOpenSessions}
-                sx={{
-                  mr: 1,
-                  borderRadius: "12px",
-                  textTransform: "none",
-                  color: "#6B7280",
-                  borderColor: "#D1D5DB",
-                  fontWeight: 500,
-                  fontSize: "0.85rem",
-                  py: 1,
-                  px: 2.5,
-                  transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-                  "&:hover": {
-                    borderColor: "#0078D4",
-                    color: "#0078D4",
-                    backgroundColor: "rgba(0, 120, 212, 0.04)",
-                    transform: "translateY(-1px)",
-                  },
-                  "&:active": {
-                    transform: "scale(0.98) translateY(0)",
-                  },
-                }}
-              >
-                Sessions
-              </Button>
-            )}
+
           </>
         )}
 

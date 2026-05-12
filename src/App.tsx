@@ -29,13 +29,9 @@ import ResponseViewer from "./components/builder/ResponseViewer";
 import AdminFormBuilder from "./pages/AdminFormBuilder";
 import AdminHomePage from "./pages/AdminHomePage";
 import EvaluationPage from "./pages/EvaluationPage";
-import AdminSessionsPage from "./pages/AdminSessionsPage";
 import { DashboardProvider } from "./contexts/DashboardContext";
 
-// Session management
-import { useSessionManager } from "./utils/sessionManager";
-import SessionTakeoverDialog from "./components/session/SessionTakeoverDialog";
-import SessionTakenOverScreen from "./components/session/SessionTakenOverScreen";
+
 
 const ALLOWED_TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID || "";
 
@@ -205,15 +201,6 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState("");
   const userEmail = accounts[0]?.username || "";
   const [isAdmin, setIsAdmin] = useState(false);
-
-  // Session management
-  const session = useSessionManager({
-    instance,
-    accounts,
-    isAuthenticated,
-    isAdmin,
-    isReady: pageState === "ready",
-  });
 
   // Dashboard data
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -435,7 +422,6 @@ if (decision === "guest") {
   };
 
   const handleSwitchAccount = useCallback(() => {
-    session.release();
     instance.logoutPopup().catch(() => {
       instance.logoutRedirect();
     });
@@ -443,13 +429,12 @@ if (decision === "guest") {
     setTimeout(() => {
       instance.loginRedirect(loginRequest);
     }, 100);
-  }, [session.release, instance]);
+  }, [instance]);
 
   const handleSignOut = useCallback(() => {
-    session.release();
     instance.logoutRedirect();
     clearStoredAuthDecision();
-  }, [session.release, instance]);
+  }, [instance]);
 
   const handleForgetChoice = () => {
     clearStoredAuthDecision();
@@ -551,16 +536,6 @@ if (decision === "guest") {
     );
   }
 
-  // ---- Session taken over screen ----
-  if (session.sessionState === "takenOver" && !isFormRoute) {
-    return (
-      <SessionTakenOverScreen
-        onTakeover={session.takeover}
-        onSignOut={handleSignOut}
-      />
-    );
-  }
-
   // ---- Dashboard (ready state) ----
   const adminDashboardInner = (
     <ErrorBoundary>
@@ -588,7 +563,6 @@ if (decision === "guest") {
         onSignOut={handleSignOut}
         onSwitchAccount={handleSwitchAccount}
         onOpenBuilder={() => navigate("/admin/builder")}
-        onOpenSessions={() => navigate("/admin/sessions")}
         onEditForm={(listTitle: string) => navigate(`/admin/builder/${encodeURIComponent(listTitle)}`)}
       >
         <AdminHomePage />
@@ -668,16 +642,6 @@ if (decision === "guest") {
             }
           />
           <Route
-            path="/admin/sessions"
-            element={
-              <AdminGuard isAdmin={isAdmin}>
-                <ErrorBoundary>
-                  <AdminSessionsPage />
-                </ErrorBoundary>
-              </AdminGuard>
-            }
-          />
-          <Route
             path="/user/dashboard"
             element={
               <ErrorBoundary>
@@ -717,13 +681,6 @@ if (decision === "guest") {
           />
         </Routes>
 
-        {/* Session takeover dialog — rendered on top of everything */}
-        <SessionTakeoverDialog
-          open={session.sessionState === "conflict"}
-          conflictInfo={session.conflictInfo}
-          onTakeover={session.takeover}
-          onCancel={session.reset}
-        />
       </ErrorBoundary>
     </ThemeProvider>
   );

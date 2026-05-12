@@ -631,6 +631,13 @@ export function buildSurveyJson(
         if (INTERNAL_FIELDS.includes(key)) continue;
         if (val !== undefined) cleaned[key] = val;
       }
+      // Map internal `collapsed` boolean to SurveyJS `state` string
+      if (f.type === "panel" && cleaned.collapsible) {
+        if (cleaned.collapsed === true) {
+          cleaned.state = "collapsed";
+        }
+        delete cleaned.collapsed;
+      }
       // Recursively emit nested elements for panels
       if (f.type === "panel" && Array.isArray(f.elements) && f.elements.length > 0) {
         cleaned.elements = buildElements(f.elements);
