@@ -563,14 +563,36 @@ function mapFieldToSurveyJs(field: FormBuilderField): FormBuilderField {
       return { ...field, type: "text", inputType: "number", currency: cs, format: fmt };
     }
     case "formula": {
-      // Use readOnly text — SurveyJS expression engine conflicts with manual evaluation
-      const exprVal = field.expression || "0";
+      // Use SurveyJS native `expression` type — auto-evaluates and re-evaluates.
+      // CRITICAL: `readOnly` must be false or explicitly NOT set. SurveyJS's
+      // QuestionExpressionModel.runConditionCore() checks `isReadOnly` and SKIPS
+      // expression evaluation when the question is readOnly (unless runIfReadOnly
+      // is true). The builder toggle may set readOnly=true on the field, which
+      // spreads through ...field and blocks all expression re-evaluation.
+      const exprVal = (field.expression || "0").replace(/([+\-*/])\s+(?=[+\-*/])/g, '$1');
       const dVal = field.defaultValue !== undefined ? field.defaultValue : 0;
       const decPlaces = (field as unknown as Record<string, unknown>).decimalPlaces as number ?? 2;
-      const fmt = decPlaces > 0 ? `0.${"0".repeat(decPlaces)}` : "0";
-      // Omit `expression` from spread to prevent SurveyJS from evaluating it with
-      // its own expression engine (which conflicts with manual evaluation below).
-      return { ...field, expression: undefined, type: "text", readOnly: true, defaultValue: dVal, format: fmt, _expression: exprVal } as unknown as FormBuilderField;
+      const dispFmt = (field as unknown as Record<string, unknown>).displayFormat as string || "number";
+      const props: Record<string, unknown> = {
+        type: "expression",
+        expression: exprVal,
+        defaultValue: dVal,
+        minimumFractionDigits: decPlaces,
+        maximumFractionDigits: decPlaces,
+        // Must NOT be readOnly — SurveyJS skips expression evaluation on readOnly questions
+        readOnly: false,
+        // Clear residual format from previous saves
+        format: undefined,
+      };
+      if (dispFmt === "currency") {
+        props.displayStyle = "currency";
+        props.currency = "MYR";
+      } else if (dispFmt === "percent") {
+        props.displayStyle = "percent";
+      } else {
+        props.displayStyle = "decimal";
+      }
+      return { ...field, ...props } as unknown as FormBuilderField;
     }
 
     // Advanced variants

@@ -2,14 +2,14 @@
  * FormBuilder.tsx — Custom form builder (NO SurveyJS Creator)
  * Uses react-dnd for drag-drop. Outputs SurveyJS-compatible JSON.
  */
-import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from "react";
 import { Survey } from "survey-react-ui";
 import { Model, Serializer } from "survey-core";
-import "survey-core/survey-core.min.css";
 import type { SurveyJson, FormBuilderField } from "../../types/index";
 import { QUESTION_TYPES, TYPE_GROUPS, createQuestion, buildSurveyJson, validateFields, getSpColumnKind, safeEvalArithmetic } from "../../utils/FormBuilderEngine";
 import { buildQuestionTree, removeFieldRecursive, duplicateFieldRecursive, moveFieldIntoPanel, addFieldToPanel, findFieldById, updateField, flattenFieldTree, reorderFieldsRecursive, moveFieldToRoot } from "../../utils/FormBuilderEngine";
 import { registerSignaturePad } from "../../utils/SignaturePad";
+import { registerDynamicMatrix } from "../../utils/DynamicMatrix";
 import { C } from "./constants";
 import "./FormBuilder.css";
 
@@ -102,6 +102,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 // ── Register autocapitalize as a custom SurveyJS property ─────────────────
 // ── Register custom SurveyJS widgets and properties ────────────────────
 registerSignaturePad();
+registerDynamicMatrix();
 
 if (!Serializer.findProperty("text", "autocapitalize")) {
   Serializer.addProperty("text", {
@@ -144,6 +145,60 @@ function Textarea({ value, onChange, placeholder, rows = 3 }: { value?: string; 
   const [f, setF] = useState(false);
   return <textarea value={value ?? ""} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
     onFocus={() => setF(true)} onBlur={() => setF(false)} className={`fb-textarea ${f ? 'focused' : ''}`} />;
+}
+
+/** Mini field reference picker for formula/expression editors */
+function FieldRefPicker({
+  fields,
+  currentName,
+  onPick,
+}: {
+  fields: { name: string; title?: string }[];
+  currentName?: string;
+  onPick: (fieldName: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const available = fields.filter(f => f.name !== currentName && f.name);
+  const matched = query
+    ? available.filter(f =>
+      f.name.toLowerCase().includes(query.toLowerCase()) ||
+      (f.title || "").toLowerCase().includes(query.toLowerCase())
+    )
+    : available;
+
+  return (
+    <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${C.borderLight}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+        <span style={{ fontSize: 9, color: C.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          Field references
+        </span>
+        <div style={{ flex: 1 }} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter..."
+          style={{
+            width: 80, padding: "2px 6px", fontSize: 10, border: `1px solid ${C.border}`,
+            borderRadius: 4, outline: "none", fontFamily: "inherit", boxSizing: "border-box",
+          }} />
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 3, maxHeight: 80, overflowY: "auto" }}>
+        {matched.slice(0, 20).map(f => (
+          <button key={f.name} onClick={() => onPick(f.name)}
+            title={`${f.title || f.name}`}
+            style={{
+              padding: "1px 5px", fontSize: 9, fontFamily: "monospace",
+              border: `1px solid ${C.border}`, borderRadius: 3,
+              background: C.offWhite, color: C.purple, cursor: "pointer",
+              lineHeight: 1.6, whiteSpace: "nowrap",
+            }}
+          >{`{${f.name}}`}</button>
+        ))}
+        {matched.length === 0 && (
+          <span style={{ fontSize: 9, color: C.textMuted, padding: "2px 0" }}>
+            {available.length === 0 ? "No other fields available" : "No matches"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function Select({ value, onChange, options }: { value?: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
@@ -287,18 +342,18 @@ function ValidationEditor({ field, onChange }: { field: FormBuilderField; onChan
 
 /** Operator options for logic rules */
 const LOGIC_OPERATORS = [
-  { value: "equals", label: "Equals" },
-  { value: "notEquals", label: "Does not equal" },
+  { value: "=", label: "Equals" },
+  { value: "<>", label: "Does not equal" },
   { value: "contains", label: "Contains" },
-  { value: "notContains", label: "Does not contain" },
-  { value: "startsWith", label: "Starts with" },
-  { value: "endsWith", label: "Ends with" },
-  { value: "isEmpty", label: "Is empty" },
-  { value: "isNotEmpty", label: "Is not empty" },
-  { value: "greaterThan", label: "Greater than" },
-  { value: "lessThan", label: "Less than" },
-  { value: "greaterOrEqual", label: "Greater or equal" },
-  { value: "lessOrEqual", label: "Less or equal" },
+  { value: "not contains", label: "Does not contain" },
+  { value: "starts with", label: "Starts with" },
+  { value: "ends with", label: "Ends with" },
+  { value: "empty", label: "Is empty" },
+  { value: "not empty", label: "Is not empty" },
+  { value: ">", label: "Greater than" },
+  { value: "<", label: "Less than" },
+  { value: ">=", label: "Greater or equal" },
+  { value: "<=", label: "Less or equal" },
 ];
 
 /** Single condition row */
@@ -315,7 +370,7 @@ function ConditionRow({ condition, allFields, onUpdate, onRemove, canRemove }: {
         options={[{ value: "", label: "Select field" }, ...allFields.map(f => ({ value: f.name, label: f.title || f.name }))]} />
       <Select value={condition.operator} onChange={v => onUpdate({ ...condition, operator: v })}
         options={LOGIC_OPERATORS} />
-      {!["isEmpty", "isNotEmpty"].includes(condition.operator) && (
+      {!["empty", "not empty"].includes(condition.operator) && (
         <Input value={condition.value} onChange={v => onUpdate({ ...condition, value: v })} placeholder="Value" style={{ flex: 1, minWidth: 80 }} />
       )}
       <IconBtn icon={<CloseIcon style={{ fontSize: 14 }} />} title="Remove condition" onClick={onRemove} disabled={!canRemove} danger />
@@ -334,7 +389,7 @@ function RulesSection({ rules, ruleType: _ruleType, title, icon, color, allField
   onChange: (rules: { id: string; field: string; operator: string; value: string; connector: string; enabled: boolean }[]) => void;
 }) {
   const addRule = () => {
-    onChange([...rules, { id: `rule_${Date.now()}`, field: "", operator: "equals", value: "", connector: "AND", enabled: true }]);
+    onChange([...rules, { id: `rule_${Date.now()}`, field: "", operator: "=", value: "", connector: "AND", enabled: true }]);
   };
   
   const updateRule = (idx: number, update: Partial<{ field: string; operator: string; value: string; connector: string; enabled: boolean }>) => {
@@ -489,12 +544,12 @@ function LogicRulesEditor({ field, allFields, onChange }: {
   const visibilityRules = useMemo(() => {
     if (!field.visibleIf) return [];
     // Simple parsing - in real impl this would be more sophisticated
-    return [{ id: "v1", field: "", operator: "equals", value: "", connector: "AND", enabled: true }];
+    return [{ id: "v1", field: "", operator: "=", value: "", connector: "AND", enabled: true }];
   }, [field.visibleIf]);
 
   const enableRules = useMemo(() => {
     if (!field.enableIf) return [];
-    return [{ id: "e1", field: "", operator: "equals", value: "", connector: "AND", enabled: true }];
+    return [{ id: "e1", field: "", operator: "=", value: "", connector: "AND", enabled: true }];
   }, [field.enableIf]);
 
   const updateVisibilityRules = (rules: typeof visibilityRules) => {
@@ -504,6 +559,10 @@ function LogicRulesEditor({ field, allFields, onChange }: {
       return;
     }
     const expr = rules.map((r, i) => {
+      if (["empty", "not empty"].includes(r.operator)) {
+        if (i > 0) return ` ${r.connector} {${r.field}} ${r.operator}`;
+        return `{${r.field}} ${r.operator}`;
+      }
       if (i > 0) return ` ${r.connector} {${r.field}} ${r.operator} '${r.value}'`;
       return `{${r.field}} ${r.operator} '${r.value}'`;
     }).join("");
@@ -516,6 +575,10 @@ function LogicRulesEditor({ field, allFields, onChange }: {
       return;
     }
     const expr = rules.map((r, i) => {
+      if (["empty", "not empty"].includes(r.operator)) {
+        if (i > 0) return ` ${r.connector} {${r.field}} ${r.operator}`;
+        return `{${r.field}} ${r.operator}`;
+      }
       if (i > 0) return ` ${r.connector} {${r.field}} ${r.operator} '${r.value}'`;
       return `{${r.field}} ${r.operator} '${r.value}'`;
     }).join("");
@@ -677,7 +740,7 @@ function FieldCard({ field, index, selected, onSelect, onRemove, onDuplicate, on
       onDrop(e, index);
     }}
     className={`fb-field-card ${selected ? 'selected' : ''} ${err.length ? 'error' : ''} ${isPanel ? 'panel-card' : ''}`}
-    onClick={() => onSelect(field._id)}
+    onClick={e => { e.stopPropagation(); onSelect(field._id); }}
     title={shortcuts}
     style={{ marginLeft: depth * 24 }}>
     <div className="fb-field-row">
@@ -778,7 +841,7 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
     setDragOverIndex(null);
     setDraggingIndex(null);
     const pd = e.dataTransfer.getData("palette_type");
-    if (pd) { try { onAddFromPalette(JSON.parse(pd), i); } catch { } dragIndexRef.current = null; return; }
+    if (pd) { try { onAddFromPalette(JSON.parse(pd), i); } catch { /* Invalid palette data — ignore */ } dragIndexRef.current = null; return; }
     // Handle field dragged out of a panel to the root canvas
     const fieldId = e.dataTransfer.getData("field_id");
     const fromPanel = e.dataTransfer.getData("from_panel") === "true";
@@ -799,7 +862,7 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
     setDraggingIndex(null);
     const pd = e.dataTransfer.getData("palette_type");
     if (pd) {
-      try { onAddFromPalette(JSON.parse(pd), fields.length); } catch { }
+      try { onAddFromPalette(JSON.parse(pd), fields.length); } catch { /* Invalid palette data — ignore */ }
     }
     // Handle field dragged out of a panel to the end of the canvas
     const fieldId = e.dataTransfer.getData("field_id");
@@ -810,7 +873,7 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
     dragIndexRef.current = null;
   };
 
-  return <div onDragOver={e => e.preventDefault()} onDrop={onCanvasDrop} onDragEnd={onDragEnd} className="fb-canvas">
+  return <div onDragOver={e => e.preventDefault()} onDrop={onCanvasDrop} onDragEnd={onDragEnd} onClick={() => onSelect(null)} className="fb-canvas">
     {!fields.length
       ? <div className="fb-canvas-empty">
         <div className="fb-canvas-empty-icon" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -820,7 +883,7 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
         <div className="fb-canvas-empty-text">Click a field type in the left panel,<br />or drag one here to get started.</div>
       </div>
       : <>
-        {fields.map((field, i) => <React.Fragment key={field._id}>
+        {fields.map((field, i) => <Fragment key={field._id}>
           {/* Stable DOM: indicator always rendered, toggled via display so React never inserts/removes nodes mid-drag */}
           <div
             key={`indicator-${field._id}`}
@@ -835,7 +898,7 @@ function Canvas({ fields, selectedId, onSelect, onRemove, onDuplicate, onReorder
             isFirst={i === 0} isLast={i === fields.length - 1} errors={errors}
             onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop} dragging={draggingIndex === i}
             onDropOnPanel={onDropOnPanel} onRecursiveReorder={onRecursiveReorder} selectedId={selectedId} />
-        </React.Fragment>)}
+        </Fragment>)}
         {/* Drop zone after last card — stable DOM */}
         <div
           className="fb-canvas-drop-indicator"
@@ -913,7 +976,7 @@ function DefaultValueEditor({ field, onChange }: { field: FormBuilderField; onCh
 }
 
 /** Renders type-specific configuration controls in the General tab */
-function FieldTypeProps({ field, onChange }: { field: FormBuilderField; onChange: (patch: Partial<FormBuilderField>) => void }) {
+function FieldTypeProps({ field, onChange, allFields }: { field: FormBuilderField; onChange: (patch: Partial<FormBuilderField>) => void; allFields: FormBuilderField[] }) {
   const numericTypes = ["number", "slider", "counter", "currency"];
   const dateTypes = ["date", "datetime"];
   const commentTypes = ["comment", "jsoneditor"];
@@ -969,11 +1032,21 @@ function FieldTypeProps({ field, onChange }: { field: FormBuilderField; onChange
     {/* Formula: expression editor + displayFormat + recalculate toggle */}
     {field.type === "formula" && <>
       <PropRow label="Expression / Formula" span>
-        <Textarea value={field.expression || ""} onChange={v => onChange({ expression: v })} rows={3} placeholder="e.g. {field1} + {field2}" />
-        <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4, lineHeight: 1.4 }}>
-          Use <code style={{ background: "#F3F4F6", padding: "1px 4px", borderRadius: 3, fontSize: 10 }}>{'{field_name}'}</code> syntax to reference other fields.
-          Supports <strong>+</strong>, <strong>-</strong>, <strong>*</strong>, <strong>/</strong>, parentheses, and SurveyJS expression functions.
+        <div>
+          <Textarea value={field.expression || ""} onChange={v => onChange({ expression: v })} rows={3} placeholder="e.g. {field1} + {field2}" />
+          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4, lineHeight: 1.4 }}>
+            Use <code style={{ background: "#F3F4F6", padding: "1px 4px", borderRadius: 3, fontSize: 10 }}>{'{field_name}'}</code> syntax to reference other fields.
+            Supports <strong>+</strong>, <strong>-</strong>, <strong>*</strong>, <strong>/</strong>, parentheses, and SurveyJS expression functions.
+          </div>
         </div>
+        <FieldRefPicker
+          fields={allFields}
+          currentName={field.name}
+          onPick={(name) => {
+            const cur = (field.expression || "").replace(/\s*[+\-*/]\s*$/, "");
+            onChange({ expression: cur ? `${cur} + {${name}}` : `{${name}}` });
+          }}
+        />
       </PropRow>
       <div style={{ display: "flex", gap: 8 }}>
         <PropRow label="Default value">
@@ -1471,7 +1544,7 @@ function PropertyPanel({ field, allFields, onChange, onSurveySettingsChange, sur
         {!["html", "dynamicmatrix", "file", "formula", "ranking"].includes(field.type) && <DefaultValueEditor field={field} onChange={onChange} />}
         {field.type === "text" && <PropRow label="Input type"><Select value={field.inputType || "text"} onChange={v => onChange({ inputType: v })} options={[{ value: "text", label: "Text" }, { value: "email", label: "Email" }, { value: "number", label: "Number" }, { value: "date", label: "Date" }, { value: "datetime-local", label: "Date & Time" }, { value: "tel", label: "Phone" }, { value: "url", label: "URL" }, { value: "password", label: "Password" }]} /></PropRow>}
         {field.type === "text" && (!field.inputType || field.inputType === "text") && <PropRow label="Autocapitalize"><Select value={field.autocapitalize || "none"} onChange={v => onChange({ autocapitalize: v as "none" | "sentences" | "words" | "characters" })} options={[{ value: "none", label: "None" }, { value: "sentences", label: "Sentences" }, { value: "words", label: "Words" }, { value: "characters", label: "Characters (ALL CAPS)" }]} /></PropRow>}
-        <FieldTypeProps field={field} onChange={onChange} />
+        <FieldTypeProps field={field} onChange={onChange} allFields={allFields} />
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
           {field.type !== "html" && <Toggle checked={!!field.isRequired} onChange={v => onChange({ isRequired: v })} label="Required field" />}
           <Toggle checked={!field.startWithNewLine} onChange={v => onChange({ startWithNewLine: !v })} label="Inline (same row as previous)" />
@@ -1543,6 +1616,8 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
   if (currentFingerprint !== fingerprintRef.current) {
     fingerprintRef.current = currentFingerprint;
     try {
+      modelRef.current?.dispose();
+      modelRef.current?.dispose();
       const m = new Model(json);
       // Restore preview data for questions that still exist
       for (const [key, val] of Object.entries(dataRef.current)) {
@@ -1586,14 +1661,14 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
           try {
             const result = safeEvalArithmetic(compiled);
             if (typeof result === "number" && isFinite(result)) {
-              if (q.value !== result) q.value = result;
+              if (q.value !== result) m.setValue(q.name, result);
             }
           } catch (e) {
             console.warn(`[Builder] Formula eval failed for "${q.name}": expr="${expr}" compiled="${compiled}"`, e);
           }
         }
       };
-      m.onValueChanged.add(recalcExpressions);
+      m.onValueChanged.add(() => setTimeout(recalcExpressions, 0));
       setTimeout(recalcExpressions, 0);
       // Autocapitalize hook
       m.onValueChanged.add((_, options) => {
@@ -1616,12 +1691,24 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
           q.value = next;
         }
       });
+      // Customise currency display for MYR → show "RM" symbol
+      m.onGetExpressionDisplayValue.add((_sender, options) => {
+        if (options.question && options.question.getType() === "expression" && (options.question as any).currency === "MYR") {
+          options.displayValue = "RM " + String(options.displayValue).replace(/^[^\d\s-]+/, "").trim();
+        }
+      });
       if (json.labelPosition) {
         m.questionTitleLocation = json.labelPosition as "top" | "bottom" | "left";
       }
       modelRef.current = m;
     } catch (e) { console.error("Preview model error:", e); modelRef.current = null; }
   }
+
+  useEffect(() => () => {
+    modelRef.current?.dispose();
+    modelRef.current = null;
+    fingerprintRef.current = "";
+  }, []);
 
   const model = modelRef.current;
   if (!model) return null;
@@ -1924,7 +2011,7 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
           setShowRestorePrompt(true);
         }
       }
-    } catch { }
+    } catch { /* Non-critical — autosave parse failure */ }
   }, []);
 
   const restoreDraft = () => {
@@ -1937,7 +2024,7 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
           setSurveySettings(saved => ({ ...saved, ...savedSettings }));
         }
       }
-    } catch { }
+    } catch { /* Non-critical — autosave parse failure */ }
     setShowRestorePrompt(false);
   };
 
@@ -2177,8 +2264,8 @@ export default function FormBuilder({ initialJson, onChange, height = "calc(100v
               <ChevronLeftIcon style={{ fontSize: 16 }} />
             </button>
             <div className="fb-property-scroll-content" ref={propertyPanelRef} onScroll={checkPropertyScrollState}>
-              <PropertyPanel field={selectedField || selectedFieldRef.current} allFields={flattenFieldTree(fields)} onChange={patch => {
-                const id = selectedField?._id ?? selectedFieldRef.current?._id;
+              <PropertyPanel field={selectedId !== null ? (selectedField || selectedFieldRef.current) : null} allFields={flattenFieldTree(fields)} onChange={patch => {
+                const id = selectedId !== null ? (selectedField?._id ?? selectedFieldRef.current?._id) : null;
                 if (id) handleChange(id, patch);
               }} surveySettings={surveySettings} onSurveySettingsChange={setSurveySettings} token={_token} />
             </div>

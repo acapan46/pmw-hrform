@@ -186,11 +186,12 @@ function ChoicesEditor({ choices, onChange }: { choices: (string | { value: stri
 
 // ── Property Panel for a single evaluation element ─────────────────────
 function EvalElementPropertyPanel({
-  el, idx, onChange,
+  el, idx, onChange, allElements,
 }: {
   el: Record<string, unknown>;
   idx: number;
   onChange: (idx: number, key: string, value: unknown) => void;
+  allElements: Record<string, unknown>[];
 }) {
   const [tab, setTab] = useState<"general" | "validation" | "options">("general");
   const hasChoices = ["dropdown", "radiogroup", "checkbox", "buttongroup"].includes(el.type as string);
@@ -240,13 +241,38 @@ function EvalElementPropertyPanel({
           
           {el.type === "formula" && <>
             <PropRow label="Expression / Formula">
-              <textarea value={(el.expression as string) || ""} onChange={e => onChange(idx, "expression", e.target.value)}
-                placeholder="e.g. {field1} + {field2}" rows={3}
-                style={{ ...inp, height: "auto", minHeight: 56, padding: "8px 9px", resize: "vertical", lineHeight: 1.5, fontFamily: "monospace" }} />
-              <div style={{ fontSize: 9, color: C.textMuted, marginTop: 3, lineHeight: 1.4 }}>
-                Use <code style={{ background: "#F3F4F6", padding: "1px 3px", borderRadius: 2, fontSize: 9 }}>{'{field_name}'}</code> syntax.
-                Supports +, -, *, / and parentheses.
+              <div>
+                <textarea value={(el.expression as string) || ""} onChange={e => onChange(idx, "expression", e.target.value)}
+                  placeholder="e.g. {field1} + {field2}" rows={3}
+                  style={{ ...inp, height: "auto", minHeight: 56, padding: "8px 9px", resize: "vertical", lineHeight: 1.5, fontFamily: "monospace" }} />
+                <div style={{ fontSize: 9, color: C.textMuted, marginTop: 3, lineHeight: 1.4 }}>
+                  Use <code style={{ background: "#F3F4F6", padding: "1px 3px", borderRadius: 2, fontSize: 9 }}>{'{field_name}'}</code> syntax.
+                  Supports +, -, *, / and parentheses.
+                </div>
               </div>
+              {allElements.length > 1 && (
+                <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${C.borderLight}` }}>
+                  <div style={{ fontSize: 9, color: C.textMuted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+                    Insert field
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3, maxHeight: 72, overflowY: "auto" }}>
+                    {allElements.filter(e => (e.name as string) !== el.name).map(e => (
+                      <button key={e.name as string} onClick={() => {
+                        const cur = ((el.expression as string) || "").replace(/\s*[+\-*/]\s*$/, "");
+                        onChange(idx, "expression", cur ? `${cur} + {${e.name}}` : `{${e.name}}`);
+                      }}
+                        title={`${(e.title as string) || ""}`}
+                        style={{
+                          padding: "1px 5px", fontSize: 9, fontFamily: "monospace",
+                          border: `1px solid ${C.border}`, borderRadius: 3,
+                          background: C.offWhite, color: C.purple, cursor: "pointer",
+                          lineHeight: 1.6, whiteSpace: "nowrap",
+                        }}
+                      >{`{${e.name}}`}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </PropRow>
             <PropRow label="Display format">
               <select value={(el.displayFormat as string) || "number"} onChange={e => onChange(idx, "displayFormat", e.target.value)} style={inp}>
@@ -432,7 +458,7 @@ export default function EvalElementPicker({ elements, onChange }: EvalElementPic
               {/* Expanded property panel */}
               {expandedIdx === i && (
                 <div style={{ padding: "0 10px 10px", borderTop: `1px solid ${C.border}` }}>
-                  <EvalElementPropertyPanel el={el} idx={i} onChange={updateElement} />
+                  <EvalElementPropertyPanel el={el} idx={i} onChange={updateElement} allElements={elements} />
                 </div>
               )}
             </div>

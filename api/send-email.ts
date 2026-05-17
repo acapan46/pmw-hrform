@@ -13,6 +13,14 @@ interface ApiResponse {
 }
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
+  // Only allow requests from the app's own origin
+  const hdrs = (req as Record<string, unknown>).headers as Record<string, string | undefined> || {};
+  const origin = hdrs['origin'] || hdrs['referer'] || '';
+  const allowedOrigins = [process.env.VITE_SP_SITE_URL || '', process.env.APP_ORIGIN || ''].filter(Boolean);
+  if (allowedOrigins.length > 0 && !allowedOrigins.some(o => origin.startsWith(o))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");

@@ -8,7 +8,6 @@ import { InteractionStatus } from "@azure/msal-browser";
 import { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import { FlatLightPanelless } from "survey-core/themes";
-import "survey-core/survey-core.min.css";
 
 import { spGet, spPatch, triggerApprovalNotification, getAllFormConfigs, getFormConfigByTitle, submitEvaluationData, updateLayerStatus } from "../../utils/formBuilderSP";
 import { createSpClient } from "../../utils/sharepointClient";
@@ -355,7 +354,9 @@ export default function ApprovalDashboard() {
               const lc = JSON.parse(form.LayerConfig);
               hasEvalLayer = lc.layers?.some((l: { type: string }) => l.type === "evaluation") ?? false;
               hasBranches = (lc.manualBranches?.length ?? 0) > 0;
-            } catch {}
+            } catch {
+              /* Invalid LayerConfig JSON — treat as no layers */
+            }
           }
           if (!hasApprovalLayers && !hasEvalLayer) continue;
 
@@ -662,7 +663,9 @@ export default function ApprovalDashboard() {
                     Status: correctedStatus,
                     FormStatus: correctedStatus,
                   });
-                } catch {}
+                  } catch {
+                    /* Patch failure is non-critical */
+                  }
                 // Update local state
                 setPendingItems((prev) => prev.map(i =>
                   i.Id === item.Id ? { ...i, FormStatus: correctedStatus, Status: correctedStatus } : i
@@ -694,7 +697,9 @@ export default function ApprovalDashboard() {
               if (!allConfs.some(c => c === vl)) allConfs.push(vl);
             }
             if (cfg?.LayerConfig) {
-              try { allConfs.push(JSON.parse(cfg.LayerConfig) as { layers?: LayerConfigItem[]; manualBranches?: ManualBranch[] }); } catch {}
+              try { allConfs.push(JSON.parse(cfg.LayerConfig) as { layers?: LayerConfigItem[]; manualBranches?: ManualBranch[] }); } catch {
+                /* Invalid JSON — skip */
+              }
             }
             const refCfg = formLayerConfigsRef.current[item.Title];
             if (refCfg && !allConfs.some(c => c === refCfg)) allConfs.push(refCfg);
@@ -724,7 +729,7 @@ export default function ApprovalDashboard() {
             const checkValid = () => { setEvalValid(!m.hasErrors()); };
             m.onValueChanged.add(checkValid);
             setTimeout(checkValid, 0);
-            setEvalSurveyModel(m);
+            setEvalSurveyModel((prev) => { prev?.dispose(); return m; });
           } else {
             setEvalSurveyModel(null);
             setEvalValid(false);
@@ -758,7 +763,9 @@ export default function ApprovalDashboard() {
       // Compute total layers from config (same pattern as handleApprove)
       let branchLayers: LayerConfigItem[] | null = null;
       if (formConfig.LayerConfig) {
-        try { const lc = JSON.parse(formConfig.LayerConfig); branchLayers = getActiveLayers(lc, selectedItem.SelectedBranch); } catch {}
+        try { const lc = JSON.parse(formConfig.LayerConfig); branchLayers = getActiveLayers(lc, selectedItem.SelectedBranch); } catch {
+          /* Invalid JSON — keep null */
+        }
       }
       const totalLayers = branchLayers?.length || formConfig.NumberOfApprovalLayer || 0;
       const isFinal = currLayerNum >= totalLayers;
@@ -874,7 +881,7 @@ export default function ApprovalDashboard() {
         } catch { /* keep defaults */ }
       }
       setCurrentLayerType(newLayerType);
-      setEvalSurveyModel(newEvalModel);
+      setEvalSurveyModel((prev) => { prev?.dispose(); return newEvalModel; });
       setItemCurrentTypes((prev) => ({ ...prev, [updatedItem.Id]: newLayerType }));
     } catch (e) { setError((e as Error).message); }
     finally { setBranchLoading(false); }
@@ -889,7 +896,9 @@ export default function ApprovalDashboard() {
       const currentLayer = selectedItem.CurrentApprovalLayer || 1;
       let branchLayers: LayerConfigItem[] | null = null;
       if (formConfig.LayerConfig) {
-        try { const lc = JSON.parse(formConfig.LayerConfig); branchLayers = getActiveLayers(lc, selectedItem.SelectedBranch); } catch {}
+        try { const lc = JSON.parse(formConfig.LayerConfig); branchLayers = getActiveLayers(lc, selectedItem.SelectedBranch); } catch {
+          /* Invalid JSON — keep null */
+        }
       }
       const totalLayers = branchLayers?.length || formConfig.NumberOfApprovalLayer || 1;
       const listName = selectedItem.Title; // list is named after form title
@@ -1033,7 +1042,8 @@ export default function ApprovalDashboard() {
       if (responseData) {
         m.data = responseData;
       }
-      setPreviewModel(m);
+      setPreviewModel((prev) => { prev?.dispose(); return m; });
+      return () => { m.dispose(); };
     } catch {
       setPreviewModel(null);
     }

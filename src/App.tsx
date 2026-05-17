@@ -105,7 +105,9 @@ function mapSubmission(
           try {
             const allEvalData = JSON.parse(rawEvalData) as Record<number, EvaluationDataEntry>;
             evalData = allEvalData[n] ?? null;
-          } catch {}
+          } catch {
+            /* Invalid JSON — no eval data */
+          }
         }
         enhancedLayers.push({
           layerNumber: n,
@@ -406,11 +408,8 @@ if (decision === "guest") {
   }, [pageState, isAuthenticated, navigate, isAdmin]);
 
   const handleLogin = () => {
-    console.log("handleLogin called, inProgress:", inProgress, "accounts:", instance.getAllAccounts());
-    
     // Check if login already in progress
     if (inProgress !== "none") {
-      console.warn("Login already in progress, waiting...");
       return;
     }
     
@@ -432,7 +431,6 @@ if (decision === "guest") {
       // May fail if storage is inaccessible
     }
     
-    console.log("Calling instance.loginRedirect...");
     instance.loginRedirect(loginRequest);
   };
 

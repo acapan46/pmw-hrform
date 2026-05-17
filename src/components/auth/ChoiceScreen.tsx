@@ -196,7 +196,6 @@ export default function ChoiceScreen({ onLogin, onGuest }: ChoiceScreenProps) {
                 size="large"
                 startIcon={<LoginIcon />}
                 onClick={() => {
-                  console.log("Button onClick fired, calling onLogin...");
                   onLogin();
                 }}
                 sx={{

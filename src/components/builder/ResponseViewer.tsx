@@ -2,14 +2,13 @@
  * ResponseViewer.tsx — Admin view for all form submissions
  * Route: /admin/responses/:formTitle
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import { FlatLightPanelless } from "survey-core/themes";
-import "survey-core/survey-core.min.css";
 
 import LockIcon from "@mui/icons-material/Lock";
 import BlockIcon from "@mui/icons-material/Block";
@@ -242,28 +241,35 @@ export default function ResponseViewer() {
       ? submissions
       : submissions.filter((s) => s.Status.toLowerCase().includes(statusFilter.toLowerCase()));
 
+  const modelRef = useRef<Model | null>(null);
+  // Dispose model on unmount
+  useEffect(() => {
+    return () => modelRef.current?.dispose();
+  }, []);
+
   // Render preview survey with data
-  const previewSurvey = surveyJson
-    ? (() => {
+  const previewSurvey = useMemo(() => {
+    if (!surveyJson) return null;
+    try {
+      const m = new Model(surveyJson as object);
+      m.applyTheme(FlatLightPanelless);
+      m.mode = "display";
+      // If there's a selected submission, load its data
+      if (selectedSubmission?.RawJSON) {
         try {
-          const m = new Model(surveyJson as object);
-          m.applyTheme(FlatLightPanelless);
-          m.mode = "display";
-          // If there's a selected submission, load its data
-          if (selectedSubmission?.RawJSON) {
-            try {
-              const data = JSON.parse(selectedSubmission.RawJSON);
-              m.data = data;
-            } catch {
-              // Ignore parse errors
-            }
-          }
-          return m;
+          const data = JSON.parse(selectedSubmission.RawJSON);
+          m.data = data;
         } catch {
-          return null;
+          // Ignore parse errors
         }
-      })()
-    : null;
+      }
+      modelRef.current?.dispose();
+      modelRef.current = m;
+      return m;
+    } catch {
+      return null;
+    }
+  }, [surveyJson, selectedSubmission?.RawJSON]);
 
   // Status badge color
   const getStatusColor = (status: string) => {

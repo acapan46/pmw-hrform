@@ -1,8 +1,19 @@
-import type { AccountInfo, IPublicClientApplication } from "@azure/msal-browser";
+﻿import type { AccountInfo, IPublicClientApplication } from "@azure/msal-browser";
 import type {
   DiscoveredList,
   SharePointClient,
 } from "../types";
+
+/** Wraps fetch with an AbortController timeout (default 30s) */
+async function fetchWithTimeout(url: string | URL | Request, options: RequestInit = {}, timeoutMs = 30000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await globalThis.fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 // Module-level digest cache
 let _digestCache: string | null = null;
@@ -48,7 +59,7 @@ async function getDigest(token: string): Promise<string> {
 
   const SP_SITE_URL = (import.meta.env.VITE_SP_SITE_URL || "").replace(/\/$/, "");
 
-  const response = await fetch(`${SP_SITE_URL}/_api/contextinfo`, {
+  const response = await fetchWithTimeout(`${SP_SITE_URL}/_api/contextinfo`, {
     method: "POST",
     headers: {
       Accept: "application/json;odata=nometadata",
@@ -83,7 +94,6 @@ export function createSpClient(
   accounts: AccountInfo[]
 ): SharePointClient {
   const SP_SITE_URL = (import.meta.env.VITE_SP_SITE_URL || "").replace(/\/$/, "");
-  const userCache: Record<string, string> = {};
 
   async function acquireToken(): Promise<string> {
     return getToken(instance, accounts);
@@ -100,37 +110,9 @@ export function createSpClient(
     return email;
   }
 
-  async function resolveUserEmails(token: string, userIds: (string | number)[]): Promise<Record<string, string>> {
-    const unique = [...new Set(userIds.map(String))].filter(id => id && !userCache[id]);
-    await Promise.all(
-      unique.map(async (id) => {
-        try {
-          const response = await fetch(
-            `${SP_SITE_URL}/_api/web/getUserById(${id})?$select=Email,Title`,
-            {
-              headers: {
-                Accept: "application/json;odata=nometadata",
-                Authorization: `Bearer ${token}`,
-              },
-            }
-          );
-          if (response.ok) {
-            const data = await response.json();
-            userCache[id] = data?.Email || "";
-          } else {
-            userCache[id] = "";
-          }
-        } catch {
-          userCache[id] = "";
-        }
-      })
-    );
-    return userCache;
-  }
-
   async function discoverLists(): Promise<DiscoveredList[]> {
     const token = await acquireToken();
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${SP_SITE_URL}/_api/web/lists?$select=Title,Id,ItemCount,Created,Hidden,BaseTemplate,BaseType,IsCatalog,IsSiteAssetsLibrary,IsApplicationList,IsSystemList,NoCrawl`,
       {
         headers: {
@@ -175,11 +157,12 @@ export function createSpClient(
     const params = new URLSearchParams();
     const selectInput = options?.select;
     const selectArr = Array.isArray(selectInput) ? selectInput : typeof selectInput === "string" ? [selectInput] : [];
-    const selectCols = buildSelect([...selectArr, "AuthorId"]);
+    const selectCols = buildSelect([...selectArr, "Author/Id,Author/Email"]);
     params.set("$select", selectCols);
     if (options?.filter) params.set("$filter", options.filter as string);
     if (options?.orderby) params.set("$orderby", options.orderby as string);
     params.set("$top", String(options?.top ?? 500));
+    params.set("$expand", "Author/Id,Author/Email");
 
     const url = `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(listName)}')/items?${params}`;
     const response = await fetch(url, {
@@ -200,15 +183,9 @@ export function createSpClient(
       return [];
     }
 
-    // Resolve AuthorId → email for all items
-    const authorIds = items.map((i: Record<string, unknown>) => i.AuthorId).filter((v): v is string | number => Boolean(v));
-    if (authorIds.length > 0) {
-      await resolveUserEmails(token, authorIds);
-    }
-
     return items.map((item: Record<string, unknown>) => ({
       ...item,
-      _authorEmail: userCache[String(item.AuthorId)] || "",
+      _authorEmail: (item.Author as Record<string, unknown>)?.Email as string || "",
     }));
   }
 
@@ -220,11 +197,12 @@ export function createSpClient(
     const params = new URLSearchParams();
     const selectInput = options?.select;
     const selectArr = Array.isArray(selectInput) ? selectInput : typeof selectInput === "string" ? [selectInput] : [];
-    const selectCols = buildSelect([...selectArr, "AuthorId"]);
+    const selectCols = buildSelect([...selectArr, "Author/Id,Author/Email"]);
     params.set("$select", selectCols);
     if (options?.filter) params.set("$filter", options.filter as string);
     if (options?.orderby) params.set("$orderby", options.orderby as string);
     params.set("$top", String(options?.top ?? 500));
+    params.set("$expand", "Author/Id,Author/Email");
 
     const url = `${SP_SITE_URL}/_api/web/lists(guid'${listGuid}')/items?${params}`;
     const response = await fetch(url, {
@@ -245,14 +223,9 @@ export function createSpClient(
       return [];
     }
 
-    const authorIds = items.map((i: Record<string, unknown>) => i.AuthorId).filter((v): v is string | number => Boolean(v));
-    if (authorIds.length > 0) {
-      await resolveUserEmails(token, authorIds);
-    }
-
     return items.map((item: Record<string, unknown>) => ({
       ...item,
-      _authorEmail: userCache[String(item.AuthorId)] || "",
+      _authorEmail: (item.Author as Record<string, unknown>)?.Email as string || "",
     }));
   }
 
@@ -263,14 +236,15 @@ export function createSpClient(
   ): Promise<Record<string, unknown>[]> {
     const token = await acquireToken();
     const params = new URLSearchParams();
-    const selectCols = buildSelect([...(options?.select as string[] || []), "AuthorId", "FormID", "NumberOfApprovalLayers", "FormStatus"]);
+    const selectCols = buildSelect([...(options?.select as string[] || []), "Author/Id,Author/Email", "FormID", "NumberOfApprovalLayers", "FormStatus"]);
     params.set("$select", selectCols);
     if (options?.filter) params.set("$filter", options.filter as string);
     if (options?.orderby) params.set("$orderby", options.orderby as string);
     params.set("$top", String(options?.top ?? 500));
+    params.set("$expand", "Author/Id,Author/Email");
 
     const url = `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(listName)}')/items?${params}`;
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         Accept: "application/json;odata=nometadata",
         Authorization: `Bearer ${token}`,
@@ -288,20 +262,15 @@ export function createSpClient(
       return [];
     }
 
-    const authorIds = items.map((i: Record<string, unknown>) => i.AuthorId).filter((v): v is string | number => Boolean(v));
-    if (authorIds.length > 0) {
-      await resolveUserEmails(token, authorIds);
-    }
-
     const userEmailLower = userEmail.toLowerCase();
     return items
       .filter((item: Record<string, unknown>) => {
-        const authorEmail = userCache[String(item.AuthorId)]?.toLowerCase() || "";
-        return authorEmail === userEmailLower;
+        const authorEmail = ((item.Author as Record<string, unknown>)?.Email as string) || "";
+        return authorEmail.toLowerCase() === userEmailLower;
       })
       .map((item: Record<string, unknown>) => ({
         ...item,
-        _authorEmail: userCache[String(item.AuthorId)] || "",
+        _authorEmail: (item.Author as Record<string, unknown>)?.Email as string || "",
       }));
   }
 
@@ -310,7 +279,7 @@ export function createSpClient(
     const email = getCurrentUserEmail();
 
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${SP_SITE_URL}/_api/web/sitegroups/getByName('${encodeURIComponent(groupName)}')/users?$select=LoginName,Email`,
         {
           headers: {
@@ -340,7 +309,7 @@ export function createSpClient(
     const token = await acquireToken();
 
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(title)}')?$select=Id`,
         {
           headers: {
@@ -369,7 +338,7 @@ export function createSpClient(
       BaseTemplate: 100,
     };
 
-    const response = await fetch(`${SP_SITE_URL}/_api/web/lists`, {
+    const response = await fetchWithTimeout(`${SP_SITE_URL}/_api/web/lists`, {
       method: "POST",
       headers: {
         Accept: "application/json;odata=nometadata",
@@ -408,7 +377,7 @@ export function createSpClient(
       body["NumLines"] = 6;
     }
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(listTitle)}')/fields`,
       {
         method: "POST",
@@ -448,7 +417,7 @@ export function createSpClient(
         ...body,
       };
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(listTitle)}')/items(${itemId})`,
         {
           method: "POST",
@@ -478,7 +447,7 @@ export function createSpClient(
         ...body,
       };
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(listTitle)}')/items`,
         {
           method: "POST",
@@ -518,7 +487,7 @@ export function createSpClient(
 
       try {
         const digest = await getDigest(token);
-        const response = await fetch(
+        const response = await fetchWithTimeout(
       `${SP_SITE_URL}/_api/web/lists/getbytitle('${encodeURIComponent(listTitle)}')/items(${itemId})`,
           {
             method: "POST",
@@ -547,7 +516,7 @@ export function createSpClient(
     const token = await acquireToken();
 
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `${SP_SITE_URL}/_api/web/siteusers?$select=Email,Title&$filter=PrincipalType eq 1`,
         {
           headers: {

@@ -4,7 +4,7 @@
 - **Single app at root**. All commands run from root.
 - Entry: `src/main.tsx` → `msalInstance.initialize()` → `BrowserRouter` → `AuthProvider` → `App.tsx`
 - Theme: `src/theme/index.ts` (MUI custom, `#0078D4` primary / `#6264A7` secondary). MUI v9 — `Grid` (not Grid2), `slotProps` replaces `PaperProps`.
-- **Sub-instructions**: `src/utils/AGENTS.md`, `src/components/builder/AGENTS.md`, `src/pages/AGENTS.md`, `api/AGENTS.md`.
+- **Sub-instructions**: `src/utils/AGENTS.md`, `src/components/builder/AGENTS.md`, `src/pages/AGENTS.md`, `api/AGENTS.md`, `src/components/auth/AGENTS.md`, `src/components/dashboard/AGENTS.md`.
 
 ## Commands
 ```bash
@@ -18,13 +18,18 @@ npx vitest run     # 77 pure-logic unit tests, ~200ms
 - `build_errors.txt` / `build_status.txt` are stale — ignore them.
 
 ## Stack
-- React 19 + TypeScript ~6.0.2 (`verbatimModuleSyntax`, `erasableSyntaxOnly: true` — no runtime `enum`/`namespace`)
+- React 19 + TypeScript ~6.0.2 (`verbatimModuleSyntax`, `erasableSyntaxOnly: true` — no runtime `enum`/`namespace`, `noUnusedLocals`, `noUnusedParameters`)
 - Vite 8 with `@vitejs/plugin-react` (Oxc-based, React Compiler NOT enabled). `define: { global: 'globalThis' }`.
 - `buffer` polyfill: `globalThis.Buffer = Buffer` in `main.tsx` (needed by some SP responses)
 - MUI v9, `@azure/msal-react`/`@azure/msal-browser`, `react-router-dom` v7
-- **SurveyJS v2.5** (`survey-core`, `survey-react-ui`) — Custom form builder (NOT SurveyJS Creator).
+- **SurveyJS v2.5** (`survey-core`, `survey-react-ui`) — Custom form builder (NOT SurveyJS Creator). CSS imported in `main.tsx`.
 - `@react-pdf/renderer` — server-side PDF. `generateAndStorePdf` returns URL only.
-- `react-dnd` v16 — drag-drop canvas (HTML5 backend)
+- `react-dnd` v16 (HTML5 backend) — drag-drop canvas in form builder.
+- API: Vercel serverless functions in `api/` — **not Express**. Graph API client (`graphClient.ts`) for list operations.
+
+## CI
+- `.github/workflows/ci.yml`: `npm ci` → `npm run build` → **`npx vitest run`** (build AND tests both gate the pipeline).
+- Runs on pull_request + push to main/master branches (ubuntu-latest, Node 20).
 
 ## Gotchas
 
@@ -55,6 +60,8 @@ Used by: `SignaturePad` (`src/utils/SignaturePad.tsx`) and `DynamicMatrix` (`src
 - Admin detection via SharePoint group `_HR_ Forms Owners`.
 - `handleRedirectPromise()` uses **3s timeout** (`Promise.race`) — fix for hung redirects in private/incognito.
 - Clears `sessionStorage` keys `msal.interaction.status` + `msal.login.error` before `loginRedirect()` — DO NOT remove.
+- Required env vars validated at startup in `main.tsx`: `VITE_AZURE_CLIENT_ID`, `VITE_AZURE_TENANT_ID`, `VITE_SP_SITE_URL`.
+- `src/auth/` contains `msalConfig.ts` (MSAL config + loginRequest) and `AuthProvider.tsx`.
 
 ### SharePoint REST
 - **OData**: `odata=nometadata` — responses use `data.value` not `data.d.results`.
@@ -84,20 +91,20 @@ Used by: `SignaturePad` (`src/utils/SignaturePad.tsx`) and `DynamicMatrix` (`src
 - `FormBuilder.tsx` has `eslint-disable` and `any[]` usage
 - `DetailModal.tsx` uses `dangerouslySetInnerHTML` — audit XSS if user input reaches `value`
 - `api/_utils/sharepoint.ts` is dead code — safe to delete
+- `src/components/session/` is an empty directory
 - **Build**: Run `npm run build` after all changes. Do NOT add new TS errors.
 
 ## Conventions
 - **PowerShell**: use `workdir` parameter with `bash` tool
 - **Prefer `import type`** for type-only imports (`verbatimModuleSyntax`)
-- **Styling**: Form builder uses inline styles via `C` color object (`src/components/builder/constants.ts`). Published form (`DynamicFormPage.tsx`) uses CSS-in-JS with theme tokens.
+- **Styling**: Form builder uses inline styles via `C` color object (`src/components/builder/constants.ts`). Published form (`DynamicFormPage.tsx`) uses CSS-in-JS with theme tokens. Dashboard uses MUI components with theme overrides.
 - **State**: Local `useState` only — no context stores except `DashboardContext` in `AdminHomePage`.
 - **All pages eagerly imported** in `App.tsx` — no `React.lazy()`.
 
 ## Testing
-- 77 unit tests for `FormBuilderEngine.ts` only (pure logic, no network/SP).
+- 77 unit tests in `src/utils/__tests__/FormBuilderEngine.test.ts` (pure logic, no network/SP).
 - Run: `npx vitest run`. Watch: `npx vitest`.
 - No integration/E2E tests exist. No MSW mock handlers.
-- CI (`.github/workflows/ci.yml`): `npm ci && npm run build` only — no tests in CI.
 
 ## Env Vars
 | Var | Controls |
@@ -112,7 +119,22 @@ Used by: `SignaturePad` (`src/utils/SignaturePad.tsx`) and `DynamicMatrix` (`src
 |---|---|
 | `/form/:formId` | `DynamicFormPage` (`src/pages/DynamicFormPage.tsx`) |
 | `/admin/builder[/:formTitle]` | `AdminFormBuilder` (`src/pages/AdminFormBuilder.tsx`) |
-| `/admin/approvals` | `ApprovalDashboard` (**`src/components/builder/ApprovalDashboard.tsx`**) |
+| `/admin/approvals` | `ApprovalDashboard` (`src/components/builder/ApprovalDashboard.tsx`) |
 | `/admin/responses/:formTitle` | `ResponseViewer` (`src/components/builder/ResponseViewer.tsx`) |
 | `/adminhomepage` | `AdminHomePage` (`src/pages/AdminHomePage.tsx`) |
 | `/eval/:token` / `/eval/:formSlug/:responseId/:layerNumber` | `EvaluationPage` (`src/pages/EvaluationPage.tsx`) |
+
+## Builder Architecture (summary)
+```
+AdminFormBuilder.tsx (page — /admin/builder)
+  ├── FormLibrary (sidebar)
+  ├── FormBuilder.tsx (canvas — react-dnd drag-drop)
+  │     ├── Palette (57 question types)
+  │     ├── Canvas (FieldCard reorder + panel nesting)
+  │     ├── PropertyPanel (per-field OR Form Settings when deselected)
+  │     ├── JsonPreview (collapsed raw JSON)
+  │     └── LivePreviewModal (survey-react-ui)
+  ├── LayerConfigPanel (approval/evaluation layer sequence editor)
+  │     ├── LayerCard[], EvalElementPicker, PublicLinkDisplay
+  ├── VersionHistory / AuditLog / ProvisionOverlay
+```

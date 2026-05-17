@@ -41,7 +41,6 @@ import LockIcon from "@mui/icons-material/Lock";
 
 import {
   slugify,
-  checkSlugConflict,
   getAllFormConfigs,
   getFormConfig,
   upsertFormConfig,
@@ -187,7 +186,7 @@ export default function AdminFormBuilder() {
   });
   const [showBanner, setShowBanner] = useState(true);
   const [isPublic, setIsPublic] = useState(true);
-  const setM = (k: string, v: string) => setMeta(m => ({ ...m, [k]: v }));
+  const setM = useCallback((k: string, v: string) => setMeta(m => ({ ...m, [k]: v })), []);
   const [slugError, setSlugError] = useState("");
   const [slugChecking, setSlugChecking] = useState(false);
   const [slugLocked, setSlugLocked] = useState(false);
@@ -292,16 +291,24 @@ export default function AdminFormBuilder() {
   }, [meta.formTitle, slugManual, slugLocked, setM]);
 
   useEffect(() => {
-    if (!meta.slug || !tokenRef.current) {
+    if (!meta.slug) {
       setSlugError("");
       return;
     }
     let cancelled = false;
     setSlugChecking(true);
-    const t = setTimeout(async () => {
-      const c = await checkSlugConflict(tokenRef.current!, meta.slug, isEditing ? meta.formTitle : null);
+    const t = setTimeout(() => {
+      const slugToCheck = slugify(meta.slug);
+      if (!slugToCheck) {
+        if (!cancelled) { setSlugError(""); setSlugChecking(false); }
+        return;
+      }
+      const others = allForms.filter(
+        f => f.Slug && slugify(f.Slug) === slugToCheck && f.Title !== (isEditing ? meta.formTitle : null)
+      );
+      const conflict = others.length > 0 ? others[0].Title : null;
       if (!cancelled) {
-        setSlugError(c ? `Used by: "${c}"` : "");
+        setSlugError(conflict ? `Used by: "${conflict}"` : "");
         setSlugChecking(false);
       }
     }, 600);
@@ -309,7 +316,7 @@ export default function AdminFormBuilder() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [meta.slug, isEditing, meta.formTitle]);
+  }, [meta.slug, isEditing, meta.formTitle, allForms]);
 
   useEffect(() => {
     if (inProgress !== InteractionStatus.None) return;
@@ -634,7 +641,11 @@ export default function AdminFormBuilder() {
     setProvisioning(true);
     try {
       const diffs = diffSurveyJson(prevSurveyRef.current, usedJson) as { type: string; summary: string; before: unknown; after: unknown }[];
-      const conflict = await checkSlugConflict(token, meta.slug, isEditing ? title : null);
+      const slugToCheck = slugify(meta.slug);
+      const others = allForms.filter(
+        f => f.Slug && slugify(f.Slug) === slugToCheck && f.Title !== (isEditing ? title : null)
+      );
+      const conflict = others.length > 0 ? others[0].Title : null;
       if (conflict) throw new Error(`Slug "${meta.slug}" used by "${conflict}".`);
       if (isEditing && originalVersion && !isDraft && !isVersionGreater(version, originalVersion)) throw new Error(`v${version} must be > v${originalVersion}.`);
 

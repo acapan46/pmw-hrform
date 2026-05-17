@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DynamicFormPage.tsx - Public form renderer
  * Route: /form/:formId
  */
@@ -9,7 +9,6 @@ import { InteractionStatus } from "@azure/msal-browser";
 import { Model, Serializer } from "survey-core";
 import { Survey } from "survey-react-ui";
 import { LayeredDarkPanelless, LayeredLightPanelless } from "survey-core/themes";
-import "survey-core/survey-core.min.css";
 
 import { getLatestFormBySlug, getFormVersion, spGet, spPost, spPatch, triggerApprovalNotification, getSharePointChoices, getFilteredListChoices, uploadSignatureImage, getFormConfigByTitle, writeMatrixChildItems, ensureMatrixChildList, readMatrixChildItems, uploadFileToDocLib, ensureDocLibrary } from "../utils/formBuilderSP";
 import type { MatrixColumnDef } from "../utils/formBuilderSP";
@@ -402,15 +401,14 @@ export default function DynamicFormPage() {
           try {
             const result = safeEvalArithmetic(compiled);
             if (typeof result === "number" && isFinite(result)) {
-              if (q.value !== result) q.value = result;
+              if (q.value !== result) m.setValue(q.name, result);
             }
           } catch (e) {
             console.warn(`[DFP] Formula eval failed for "${q.name}": expr="${expr}" compiled="${compiled}"`, e);
           }
         }
       };
-      m.onValueChanged.add(recalcExpressions);
-      // Trigger on first load
+      m.onValueChanged.add(() => setTimeout(recalcExpressions, 0));
       setTimeout(recalcExpressions, 0);
       m.onValueChanged.add((_, options) => {
         const q = m.getQuestionByName(options.name);
@@ -430,6 +428,12 @@ export default function DynamicFormPage() {
         const next = transform(val);
         if (next !== val) {
           q.value = next;
+        }
+      });
+      // Customise currency display for MYR → show "RM" symbol
+      m.onGetExpressionDisplayValue.add((_sender, options) => {
+        if (options.question && options.question.getType() === "expression" && (options.question as any).currency === "MYR") {
+          options.displayValue = "RM " + String(options.displayValue).replace(/^[^\d\s-]+/, "").trim();
         }
       });
       return m;
