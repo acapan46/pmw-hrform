@@ -660,14 +660,20 @@ export default function AdminFormBuilder() {
       const questions = flattenQuestions(usedJson);
       for (const q of questions) {
         const sp = getSpColumnKind(q);
-        if (q.type === "matrixdynamic" || q.type === "tableinput") {
+        if (q.type === "matrixdynamic" || q.type === "tableinput" || q.type === "dynamicmatrix") {
           await addColumn(token, title, `${q.name}_Response`, 3, true, true);
           pLog(`     ✓ ${q.name}_Response (Enhanced Rich Text)`);
           await addColumn(token, title, `${q.name}_Json`, 3, true, false);
           pLog(`     ✓ ${q.name}_Json (JSON backup)`);
         } else if (sp) {
-          // Skip formula fields (read-only calculated, no column needed)
-          if ((q as unknown as Record<string, unknown>)._expression) continue;
+          // Formula fields (_expression or expression type) get a Number column
+          // so the calculated value is stored in SharePoint.
+          const isFormula = !!(q as unknown as Record<string, unknown>)._expression || q.type === "expression";
+          if (isFormula) {
+            await addColumn(token, title, q.name, 9, false, false); // Number (kind 9)
+            pLog(`     ✓ ${q.name} (Formula → Number)`);
+            continue; // skip the normal column creation below
+          }
           // Extract choices for Choice (6) and MultiChoice (15) columns
           let choiceValues: string[] | undefined;
           if (sp.FieldTypeKind === 6 || sp.FieldTypeKind === 15) {

@@ -366,6 +366,22 @@ export default function DynamicFormPage() {
     const json = enrichedSurveyJson;
     if (!json) return null;
     try {
+      // Ensure old-format formula fields (type:"text" with _expression) have
+      // readOnly: false — SurveyJS blocks m.setValue() on readOnly questions, which
+      // prevents our custom recalcExpressions from updating the displayed value.
+      // New-format (type:"expression") already has readOnly:false from mapFieldToSurveyJs.
+      const ensureFormulaWritable = (els: Record<string, unknown>[]) => {
+        for (const el of els) {
+          if (el._expression && el.readOnly === true) {
+            el.readOnly = false;
+          }
+          if (el.elements) ensureFormulaWritable(el.elements as Record<string, unknown>[]);
+        }
+      };
+      for (const page of (json as unknown as Record<string, unknown>).pages as Record<string, unknown>[] ?? []) {
+        if (page.elements) ensureFormulaWritable(page.elements as Record<string, unknown>[]);
+      }
+
       const m = new Model(json);
       m.applyTheme(dark ? LayeredDarkPanelless : LayeredLightPanelless);
       m.showCompletedPage = false;
@@ -387,8 +403,11 @@ export default function DynamicFormPage() {
       }
       const recalcExpressions = () => {
         for (const q of m.getAllQuestions()) {
-          const expr = exprMap.get(q.name);
+          let expr = exprMap.get(q.name);
           if (!expr) continue;
+          // Normalize corrupted expressions (e.g. `++` → `+`) for existing published forms
+          // that may have been saved with the old buggy regex.
+          expr = expr.replace(/([+\-*/])\s+([+\-*/])/g, '$1').replace(/([+\-*/])\1+/g, '$1');
           let compiled = expr;
           // Replace ALL occurrences of each field reference (split/join replaces globally)
           const refs = [...new Set(expr.match(/\{([^}]+)\}/g) || [])];
@@ -621,6 +640,16 @@ export default function DynamicFormPage() {
             delete body.FormStatus;
             delete body.CurrentLayer;
             result = await spPost(token, listUrl, body) as { Id?: number };
+          } else if (msg.includes('_Response') || msg.includes('_Json')) {
+            // Retry without _Response/_Json columns (matrix fields published before
+            // dynamicmatrix column provisioning was added)
+            console.warn("[DFP] retrying without _Response/_Json columns (missing matrix columns)");
+            for (const key of Object.keys(body)) {
+              if (key.endsWith('_Response') || key.endsWith('_Json')) {
+                delete body[key];
+              }
+            }
+            result = await spPost(token, listUrl, body) as { Id?: number };
           } else {
             throw submitErr;
           }
@@ -821,7 +850,10 @@ export default function DynamicFormPage() {
     let cancelled = false;
     doSubmitForm()
       .then(() => { if (!cancelled) setSubmitStatus("success"); })
-      .catch(() => { if (!cancelled) setSubmitStatus("error"); });
+      .catch((e: unknown) => {
+        console.error("[DFP] Submit failed:", e instanceof Error ? e.message : String(e));
+        if (!cancelled) setSubmitStatus("error");
+      });
     return () => { cancelled = true; };
   }, [submitStatus, doSubmitForm]);
 

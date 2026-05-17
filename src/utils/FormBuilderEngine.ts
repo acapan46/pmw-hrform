@@ -473,6 +473,7 @@ const INTERNAL_FIELDS = [
   "_enabIfVal",
   "_textCustomised",
   "variantKey",
+  "_expression",
 ];
 
 /**
@@ -569,7 +570,13 @@ function mapFieldToSurveyJs(field: FormBuilderField): FormBuilderField {
       // expression evaluation when the question is readOnly (unless runIfReadOnly
       // is true). The builder toggle may set readOnly=true on the field, which
       // spreads through ...field and blocks all expression re-evaluation.
-      const exprVal = (field.expression || "0").replace(/([+\-*/])\s+(?=[+\-*/])/g, '$1');
+      let exprVal = (field.expression || "0");
+      // Collapse duplicate operators: both `+ +` (with whitespace) and `++` (adjacent)
+      // MUST capture the second operator instead of using lookahead — the old regex
+      // `([+\-*/])\s+(?=[+\-*/])` with substitution `$1` converted `+ +` → `++`
+      // because the lookahead didn't consume the second operator, leaving it in place.
+      exprVal = exprVal.replace(/([+\-*/])\s+([+\-*/])/g, '$1');
+      exprVal = exprVal.replace(/([+\-*/])\1+/g, '$1');
       const dVal = field.defaultValue !== undefined ? field.defaultValue : 0;
       const decPlaces = (field as unknown as Record<string, unknown>).decimalPlaces as number ?? 2;
       const dispFmt = (field as unknown as Record<string, unknown>).displayFormat as string || "number";

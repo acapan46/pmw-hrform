@@ -1535,13 +1535,22 @@ function PropertyPanel({ field, allFields, onChange, onSurveySettingsChange, sur
     </div>
     <div style={{ flex: 1, padding: "14px" }}>
       {tab === "general" && <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        <PropRow label="Label" span><Input value={field.title} onChange={v => {
+          const nameFromLabel = v
+            .replace(/[^a-zA-Z0-9\s]/g, "")
+            .trim()
+            .replace(/\s+(.)/g, (_, c) => c.toUpperCase())
+            .replace(/^([A-Z])/, (_, c) => c.toLowerCase())
+            .replace(/[^a-zA-Z0-9_]/g, "")
+            .replace(/\s+/g, "_");
+          onChange({ title: v, name: nameFromLabel || "" });
+        }} placeholder="Question label" /></PropRow>
         <PropRow label="Field name (SP column)" span>
-          <Input value={field.name} onChange={v => onChange({ name: v.replace(/[^a-zA-Z0-9_]/g, "").replace(/\s+/g, "_") })} placeholder="camelCaseName" />
-          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>No spaces — becomes the SharePoint column name</div>
+          <Input value={field.name} onChange={v => onChange({ name: v.replace(/[^a-zA-Z0-9_]/g, "").replace(/\s+/g, "_") })} placeholder="camelCaseName (required)" />
+          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>Required — no spaces, becomes the SharePoint column name</div>
         </PropRow>
-        <PropRow label="Label" span><Input value={field.title} onChange={v => onChange({ title: v })} placeholder="Question label" /></PropRow>
         <PropRow label="Description / hint" span><Input value={field.description || ""} onChange={v => onChange({ description: v })} placeholder="Optional helper text" /></PropRow>
-        {!["html", "dynamicmatrix", "file", "formula", "ranking"].includes(field.type) && <DefaultValueEditor field={field} onChange={onChange} />}
+        {!["html", "dynamicmatrix", "file", "formula", "ranking", "panel"].includes(field.type) && <DefaultValueEditor field={field} onChange={onChange} />}
         {field.type === "text" && <PropRow label="Input type"><Select value={field.inputType || "text"} onChange={v => onChange({ inputType: v })} options={[{ value: "text", label: "Text" }, { value: "email", label: "Email" }, { value: "number", label: "Number" }, { value: "date", label: "Date" }, { value: "datetime-local", label: "Date & Time" }, { value: "tel", label: "Phone" }, { value: "url", label: "URL" }, { value: "password", label: "Password" }]} /></PropRow>}
         {field.type === "text" && (!field.inputType || field.inputType === "text") && <PropRow label="Autocapitalize"><Select value={field.autocapitalize || "none"} onChange={v => onChange({ autocapitalize: v as "none" | "sentences" | "words" | "characters" })} options={[{ value: "none", label: "None" }, { value: "sentences", label: "Sentences" }, { value: "words", label: "Words" }, { value: "characters", label: "Characters (ALL CAPS)" }]} /></PropRow>}
         <FieldTypeProps field={field} onChange={onChange} allFields={allFields} />
@@ -1629,6 +1638,30 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
       m.onValueChanged.add((_, options) => {
         dataRef.current[options.name] = options.value;
       });
+      // Pre-process JSON to ensure old-format formula fields (type:text with _expression)
+      // have readOnly: false — SurveyJS blocks m.setValue() on readOnly questions.
+      const ensureFormulaWritable = (els: Record<string, unknown>[]) => {
+        for (const el of els) {
+          if (el._expression && el.readOnly === true) {
+            el.readOnly = false;
+          }
+          // Also normalize the expression on the JSON element itself so SurveyJS
+          // expression-type questions get the clean expression for native evaluation.
+          let rawExpr = (el._expression as string) || (el.expression as string);
+          if (rawExpr) {
+            const normalized = rawExpr.replace(/([+\-*/])\s+([+\-*/])/g, '$1').replace(/([+\-*/])\1+/g, '$1');
+            if (normalized !== rawExpr) {
+              if (el._expression) el._expression = normalized;
+              if (el.expression) el.expression = normalized;
+            }
+          }
+          if (el.elements) ensureFormulaWritable(el.elements as Record<string, unknown>[]);
+        }
+      };
+      for (const page of (json as unknown as Record<string, unknown>).pages as Record<string, unknown>[] ?? []) {
+        if (page.elements) ensureFormulaWritable(page.elements as Record<string, unknown>[]);
+      }
+
       // Manually evaluate formula fields (stored as readOnly text with _expression)
       // Build expression map from the source JSON — SurveyJS does NOT preserve
       // custom JSON properties (_expression) on the question object in v2.5
@@ -1645,10 +1678,33 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
       for (const page of (json as unknown as Record<string, unknown>).pages as Record<string, unknown>[] ?? []) {
         if (page.elements) walkJson(page.elements as Record<string, unknown>[]);
       }
+
+      // Also normalize expression property on the question objects themselves.
+      // For expression-type questions, SurveyJS's native evaluation uses the raw
+      // expression property and will RE-EVALUATE (and override) after our
+      // m.setValue call — so we must ensure the question's expression is clean.
+      const normalizeQuestionExprs = () => {
+        for (const q of m.getAllQuestions()) {
+          if (q.getType() === "expression") {
+            const rawExpr = (q as any).expression as string;
+            if (rawExpr) {
+              const normalized = rawExpr.replace(/([+\-*/])\s+([+\-*/])/g, '$1').replace(/([+\-*/])\1+/g, '$1');
+              if (normalized !== rawExpr) {
+                (q as any).expression = normalized;
+              }
+            }
+          }
+        }
+      };
+      normalizeQuestionExprs();
+
       const recalcExpressions = () => {
         for (const q of m.getAllQuestions()) {
-          const expr = exprMap.get(q.name);
+          let expr = exprMap.get(q.name);
           if (!expr) continue;
+          // Normalize corrupted expressions (e.g. `++` → `+`) for existing published forms
+          // that may have been saved with the old buggy regex.
+          expr = expr.replace(/([+\-*/])\s+([+\-*/])/g, '$1').replace(/([+\-*/])\1+/g, '$1');
           let compiled = expr;
           // Replace ALL occurrences of each field reference (split/join replaces globally)
           const refs = [...new Set(expr.match(/\{([^}]+)\}/g) || [])];
