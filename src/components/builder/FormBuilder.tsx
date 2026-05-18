@@ -1720,7 +1720,7 @@ function LivePreviewModal({ json, onClose, showBanner, meta, device = "desktop" 
               if (q.value !== result) m.setValue(q.name, result);
             }
           } catch (e) {
-            console.warn(`[Builder] Formula eval failed for "${q.name}": expr="${expr}" compiled="${compiled}"`, e);
+            console.warn(`[Builder] Formula eval failed for "${q.name}"`);
           }
         }
       };

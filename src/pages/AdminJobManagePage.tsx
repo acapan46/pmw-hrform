@@ -46,6 +46,7 @@ import {
   FormatListBulleted,
   FormatListNumbered,
 } from "@mui/icons-material";
+import DOMPurify from "dompurify";
 import { useMsal } from "@azure/msal-react";
 import { fetchAdminJobs, createJobListing, updateJobListing, fetchColumnChoices } from "../utils/careersService";
 import type { JobListing, CustomFieldDefinition } from "../types";
@@ -232,7 +233,7 @@ function RichTextEditor({
   // Sync innerHTML when value changes externally
   useEffect(() => {
     if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value;
+      editorRef.current.innerHTML = DOMPurify.sanitize(value);
     }
   }, [value]);
 
@@ -754,7 +755,7 @@ export default function AdminJobManagePage() {
         )}
 
         {/* Error */}
-        {!loading && error && <Alert severity="error" sx={{ borderRadius: "12px", mb: 3 }} action={<Button size="small" onClick={load} sx={{ textTransform: "none" }}>Retry</Button>}>{error}</Alert>}
+        {!loading && error && <Alert severity="error" sx={{ borderRadius: "12px", mb: 3, fontWeight: 500, backgroundColor: "#FEF2F2", color: "#991B1B", "& .MuiAlert-icon": { color: "#DC2626" } }} action={<Button size="small" onClick={load} sx={{ textTransform: "none" }}>Retry</Button>}>{error}</Alert>}
 
         {/* Empty */}
         {!loading && !error && jobs.length === 0 && (

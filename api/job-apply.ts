@@ -20,6 +20,8 @@ interface JobApplyBody {
   applicantName: string;
   applicantEmail: string;
   applicantPhone: string;
+  currentPosition?: string;
+  currentDepartment?: string;
   coverLetter?: string;
   files?: UploadedFile[];
   customAnswers?: Record<string, unknown>;
@@ -37,6 +39,16 @@ interface ApiResponse {
   json(data: Record<string, unknown>): void;
   setHeader(name: string, value: string): void;
   end(): void;
+}
+
+/** Simple HTML entity encoder — prevents XSS in email HTML */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function generateSubmissionRef(): string {
@@ -142,13 +154,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       }
     }
 
-    // Upload cover letter as .txt file
-    let coverLetterUrl = "";
-    if (coverLetter && coverLetter.trim()) {
-      const textContent = Buffer.from(coverLetter, "utf-8").toString("base64");
-      const url = await uploadDoc(`CoverLetter_${applicantName.replace(/\s+/g, "_")}.txt`, textContent, true);
-      if (url) coverLetterUrl = url;
-    }
+    // Cover letter is stored directly as text column — no file upload needed
 
     // Upload resume and additional files
     if (files && files.length > 0) {
@@ -171,8 +177,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       SubmittedAt: submittedAt,
       SubmissionRef: submissionRef,
       ResumeUrl: resumeUrl,
-      CoverLetterUrl: coverLetterUrl,
     };
+
+    // Reasoning stored as long text column (no file upload)
+    if (coverLetter && coverLetter.trim()) {
+      applicationFields.Reasoning = coverLetter;
+    }
 
     // Only include CustomAnswers if there's data — column may not exist on the list
     const hasCustomAnswers = customAnswers && typeof customAnswers === "object" && Object.keys(customAnswers).length > 0;
@@ -188,7 +198,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       SubmissionRef: applicationFields.SubmissionRef,
     };
     // Add applicant info fields individually (may not exist on list)
-    for (const k of ["ApplicantName", "ApplicantEmail", "ApplicantPhone", "JobListingID"]) {
+    for (const k of ["ApplicantName", "ApplicantEmail", "ApplicantPhone", "CurrentPosition", "CurrentDepartment", "JobListingID"]) {
       if (applicationFields[k] != null && applicationFields[k] !== "") {
         coreFields[k] = applicationFields[k];
       }
@@ -198,7 +208,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const itemId = created.id;
 
     // Attempt optional fields — silently skip any that don't exist or have type issues
-    const optionalFields = ["SubmittedAt", "ResumeUrl", "CoverLetterUrl", "CustomAnswers"];
+    const optionalFields = ["SubmittedAt", "ResumeUrl", "Reasoning", "CustomAnswers"];
     for (const key of optionalFields) {
       const value = applicationFields[key];
       if (value === "" || value == null) continue;
@@ -229,35 +239,64 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
       try {
         const docListHtml = allDocs.length > 0
           ? `<p><strong>Documents:</strong></p><ul>${allDocs.map((d) =>
-              `<li><a href="${d.url}">${d.name}${d.isCoverLetter ? " (Cover Letter)" : ""}</a></li>`
+              `<li><a href="${d.url}">${escapeHtml(d.name)}${d.isCoverLetter ? " (Cover Letter)" : ""}</a></li>`
             ).join("")}</ul>`
           : "";
 
         const customHtml = customAnswers && Object.keys(customAnswers).length > 0
-          ? `<p><strong>Additional Responses:</strong></p><table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:600px">${
+          ? `<p><strong>Additional Responses:</strong></p><table style="border-collapse:collapse;width:100%;max-width:600px;margin-bottom:16px">${
               Object.entries(customAnswers).map(([k, v]) =>
-                `<tr><td><strong>${k}</strong></td><td>${String(v ?? "")}</td></tr>`
+                `<tr style="border:1px solid #d1d5db"><td style="padding:8px;border:1px solid #d1d5db;background:#f3f4f6;font-weight:600;width:30%">${escapeHtml(k)}</td><td style="padding:8px;border:1px solid #d1d5db">${escapeHtml(String(v ?? ""))}</td></tr>`
               ).join("")
             }</table>`
           : "";
 
-        const coverLetterPreview = coverLetter && coverLetter.trim()
-          ? `<p><strong>Cover Letter:</strong></p><blockquote style="background:#f5f5f5;padding:12px;border-left:4px solid #0078D4;">${coverLetter.replace(/\n/g, "<br>")}</blockquote>`
+        const submittedAtFormatted = new Date(submittedAt).toLocaleString("en-MY", {
+          year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+        });
+
+        const reasoningPreview = coverLetter && coverLetter.trim()
+          ? `<p><strong>Reasoning:</strong></p><blockquote style="background:#f5f5f5;padding:12px;border-left:4px solid #0078D4;margin:0 0 12px 0;font-size:13px;line-height:1.6;">${escapeHtml(coverLetter).replace(/\n/g, "<br>")}</blockquote>`
           : "";
 
+        const eh = (s: string) => escapeHtml(s);
         const htmlBody = `
-          <h2>New Job Application</h2>
-          <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:600px">
-            <tr><td><strong>Position</strong></td><td>${jobTitle}</td></tr>
-            <tr><td><strong>Applicant</strong></td><td>${applicantName}</td></tr>
-            <tr><td><strong>Email</strong></td><td><a href="mailto:${applicantEmail}">${applicantEmail}</a></td></tr>
-            <tr><td><strong>Phone</strong></td><td>${applicantPhone}</td></tr>
-            <tr><td><strong>Ref</strong></td><td>${submissionRef}</td></tr>
-            <tr><td><strong>Date</strong></td><td>${submittedAt}</td></tr>
-          </table>
-          ${customHtml}
-          ${docListHtml}
-          ${coverLetterPreview}
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; font-size: 13px; line-height: 1.5; padding: 24px; }
+              h2 { color: #0078D4; font-size: 20px; font-weight: 600; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 2px solid #0078D4; }
+              table { border-collapse: collapse; width: 100%; max-width: 600px; margin-bottom: 16px; }
+              td { padding: 8px 12px; border: 1px solid #d1d5db; font-size: 13px; vertical-align: top; }
+              td:first-child { background-color: #f3f4f6; font-weight: 600; width: 30%; white-space: nowrap; }
+              a { color: #0078D4; text-decoration: none; }
+              .section { margin-top: 16px; }
+              .section-title { font-weight: 600; font-size: 14px; color: #0078D4; margin: 0 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid #e5e7eb; }
+              @media print {
+                body { padding: 0; font-size: 11px; }
+                td { border-color: #000; }
+                h2 { border-bottom-color: #000; color: #000; }
+                a { color: #000; text-decoration: underline; }
+              }
+            </style>
+          </head>
+          <body>
+            <h2>New Job Application</h2>
+            <table>
+              <tr><td>Position</td><td>${eh(jobTitle)}</td></tr>
+              <tr><td>Applicant</td><td>${eh(applicantName)}</td></tr>
+              <tr><td>Email</td><td><a href="mailto:${eh(applicantEmail)}">${eh(applicantEmail)}</a></td></tr>
+              <tr><td>Phone</td><td>${eh(applicantPhone)}</td></tr>
+              <tr><td>Reference</td><td style="font-family:monospace;letter-spacing:0.05em;">${eh(submissionRef)}</td></tr>
+              <tr><td>Date Submitted</td><td>${submittedAtFormatted}</td></tr>
+            </table>
+            ${customHtml ? `<div class="section"><p class="section-title">Additional Responses</p>${customHtml}</div>` : ""}
+            ${docListHtml ? `<div class="section">${docListHtml}</div>` : ""}
+            ${reasoningPreview ? `<div class="section">${reasoningPreview}</div>` : ""}
+          </body>
+          </html>
         `;
 
         const attachments: Array<Record<string, unknown>> = [];
@@ -316,6 +355,6 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     });
   } catch (e) {
     console.error("[API job-apply]", e);
-    return res.status(500).json({ error: (e as Error).message });
+    return res.status(500).json({ error: "Internal server error. Please try again." });
   }
 }

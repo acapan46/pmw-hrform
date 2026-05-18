@@ -56,6 +56,6 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return res.status(200).json({ jobs } as unknown as Record<string, unknown>);
   } catch (e) {
     console.error("[API jobs-list]", e);
-    return res.status(500).json({ error: (e as Error).message });
+    return res.status(500).json({ error: "Internal server error. Please try again." });
   }
 }

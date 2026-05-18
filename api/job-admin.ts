@@ -269,6 +269,6 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   } catch (e) {
     console.error("[API job-admin]", e);
-    return res.status(500).json({ error: (e as Error).message });
+    return res.status(500).json({ error: "Internal server error. Please try again." });
   }
 }

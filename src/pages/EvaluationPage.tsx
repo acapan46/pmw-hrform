@@ -11,6 +11,7 @@ import { getLayerResponseData, updateLayerStatus, submitEvaluationData, getFormC
 import type { MatrixColumnDef } from "../utils/formBuilderSP";
 import { SP_LAYER_STATUS } from "../utils/statusConstants";
 import type { LayerConfigItem, EvaluationDataEntry } from "../types";
+import DOMPurify from "dompurify";
 import EvaluationSummary from "../components/builder/EvaluationSummary";
 import { loginRequest } from "../auth/msalConfig";
 import { generateAndStorePdf, buildPdfLayerResults } from "../utils/generateFormPdf";
@@ -511,7 +512,7 @@ export default function EvaluationPage() {
                     </div>
                     <div
                       style={{ overflow: "auto", border: `1px solid ${COLORS.border}`, borderRadius: 8 }}
-                      dangerouslySetInnerHTML={{ __html: entry.html }}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(entry.html) }}
                     />
                     <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 4 }}>
                       {entry.rows.length} row{entry.rows.length !== 1 ? "s" : ""}

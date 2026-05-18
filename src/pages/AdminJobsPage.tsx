@@ -282,7 +282,7 @@ export default function AdminJobsPage() {
         {!loading && error && (
           <Alert
             severity="error"
-            sx={{ borderRadius: "12px", mb: 3 }}
+            sx={{ borderRadius: "12px", mb: 3, fontWeight: 500, backgroundColor: "#FEF2F2", color: "#991B1B", "& .MuiAlert-icon": { color: "#DC2626" } }}
             action={
               <Button size="small" onClick={load} sx={{ textTransform: "none" }}>
                 Retry
@@ -527,14 +527,42 @@ export default function AdminJobsPage() {
                       </Typography>
                       <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, mt: 0.5 }}>
                         {selectedApp.resumeUrl && (
-                          <a href={selectedApp.resumeUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#0078D4", fontSize: "0.85rem" }}>
+                          <Box
+                            component="a"
+                            href={selectedApp.resumeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{
+                              display: "inline-flex", alignItems: "center", gap: 1,
+                              px: 1.5, py: 0.75, borderRadius: "8px",
+                              color: "#0078D4", fontWeight: 600, fontSize: "0.85rem",
+                              backgroundColor: "#F0F7FF", border: "1px solid rgba(0,120,212,0.15)",
+                              textDecoration: "none", width: "fit-content",
+                              "&:hover": { backgroundColor: "#DBEAFE" },
+                              "&::before": { content: "'📄 '", fontSize: "14px" },
+                            }}
+                          >
                             View Resume
-                          </a>
+                          </Box>
                         )}
                         {selectedApp.coverLetterUrl && (
-                          <a href={selectedApp.coverLetterUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#0078D4", fontSize: "0.85rem" }}>
+                          <Box
+                            component="a"
+                            href={selectedApp.coverLetterUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{
+                              display: "inline-flex", alignItems: "center", gap: 1,
+                              px: 1.5, py: 0.75, borderRadius: "8px",
+                              color: "#0078D4", fontWeight: 600, fontSize: "0.85rem",
+                              backgroundColor: "#F0F7FF", border: "1px solid rgba(0,120,212,0.15)",
+                              textDecoration: "none", width: "fit-content",
+                              "&:hover": { backgroundColor: "#DBEAFE" },
+                              "&::before": { content: "'📝 '", fontSize: "14px" },
+                            }}
+                          >
                             View Cover Letter
-                          </a>
+                          </Box>
                         )}
                       </Box>
                     </Box>

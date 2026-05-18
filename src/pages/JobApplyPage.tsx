@@ -28,10 +28,12 @@ import {
   LocationOn,
   Work,
 } from "@mui/icons-material";
-import { useReactiveForm, required, email } from "../hooks/useReactiveForm";
+import { useReactiveForm, required, email, phone, requiredFile } from "../hooks/useReactiveForm";
 import { useUserProfile } from "../hooks/useUserProfile";
 import { useMsal } from "@azure/msal-react";
+import { pdf } from "@react-pdf/renderer";
 import { fetchJobs, submitApplication } from "../utils/careersService";
+import JobApplyPdfDocument from "../utils/JobApplyPdfDocument";
 import type { JobListing, CustomFieldDefinition } from "../types";
 
 // eslint-disable-next-line @typescript-eslint/consistent-indexed-object-style
@@ -39,6 +41,8 @@ interface FormValues extends Record<string, unknown> {
   name: string;
   email: string;
   phone: string;
+  currentPosition: string;
+  currentDepartment: string;
   coverLetter: string;
   files: FileEntry[];
 }
@@ -332,9 +336,11 @@ export default function JobApplyPage() {
   const form = useReactiveForm<FormValues>({
     name: { value: "", validators: [required] },
     email: { value: "", validators: [required, email] },
-    phone: { value: "" },
+    phone: { value: "", validators: [required, phone] },
+    currentPosition: { value: "" },
+    currentDepartment: { value: "" },
     coverLetter: { value: "" },
-    files: { value: [] },
+    files: { value: [], validators: [requiredFile] },
   });
 
   // Pre-fill from profile once loaded
@@ -344,6 +350,8 @@ export default function JobApplyPage() {
         name: profile.displayName || form.value.name,
         email: profile.email || form.value.email,
         phone: profile.phone || form.value.phone,
+        currentPosition: profile.jobTitle || form.value.currentPosition,
+        currentDepartment: profile.department || form.value.currentDepartment,
       });
     }
     // Only run when profile loads
@@ -373,14 +381,55 @@ export default function JobApplyPage() {
         // User token not available — API will fall back to system credentials
       }
 
+      // Generate submission ref client-side (mirrors generateSubmissionRef in API)
+      const pdfSubmissionRef = `JOB-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, "0")}${String(new Date().getDate()).padStart(2, "0")}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+      // Generate PDF
+      let pdfBase64 = "";
+      try {
+        const pdfBlob = await pdf(
+          JobApplyPdfDocument({
+            data: {
+              jobTitle: job.title,
+              applicantName: values.name,
+              applicantEmail: values.email,
+              applicantPhone: values.phone,
+              currentPosition: values.currentPosition,
+              currentDepartment: values.currentDepartment,
+              submissionRef: pdfSubmissionRef,
+              submittedAt: new Date().toISOString(),
+              reasoning: values.coverLetter,
+              customAnswers,
+            },
+          }),
+        ).toBlob();
+        pdfBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.includes("base64,") ? result.split("base64,")[1] : result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(pdfBlob);
+        });
+      } catch {
+        // PDF generation failed — submit without it
+      }
+
+      const files = pdfBase64
+        ? [...values.files, { name: "JobApplication.pdf", content: pdfBase64, contentType: "application/pdf" }]
+        : values.files;
+
       const result = await submitApplication({
         jobListingId: jobId,
         jobTitle: job.title,
         applicantName: values.name,
         applicantEmail: values.email,
         applicantPhone: values.phone,
+        currentPosition: values.currentPosition,
+        currentDepartment: values.currentDepartment,
         coverLetter: values.coverLetter,
-        files: values.files,
+        files,
         customAnswers,
         accessToken,
         submittedByEmail: accounts[0]?.username || "",
@@ -570,7 +619,17 @@ export default function JobApplyPage() {
                     label="Phone Number"
                     value={form.controls.phone.value}
                     onChange={(e) => form.controls.phone.setValue(e.target.value)}
+                    onBlur={form.controls.phone.onBlur}
+                    error={form.controls.phone.touched && !!(form.controls.phone.errors.required || form.controls.phone.errors.phone)}
+                    helperText={
+                      form.controls.phone.touched && form.controls.phone.errors.required
+                        ? "Phone number is required"
+                        : form.controls.phone.touched && form.controls.phone.errors.phone
+                          ? "Please enter a valid Malaysian phone number"
+                          : ""
+                    }
                     fullWidth
+                    required
                     variant="outlined"
                     placeholder="e.g. +60 12-345 6789"
                     slotProps={{
@@ -578,16 +637,42 @@ export default function JobApplyPage() {
                     }}
                   />
 
-                  {/* Cover Letter */}
+                  {/* Current Position */}
                   <TextField
-                    label="Cover Letter (Optional)"
+                    label="Current Position"
+                    value={form.controls.currentPosition.value}
+                    onChange={(e) => form.controls.currentPosition.setValue(e.target.value)}
+                    fullWidth
+                    variant="outlined"
+                    placeholder="e.g. Senior Engineer"
+                    slotProps={{
+                      input: { sx: { borderRadius: "10px" } },
+                    }}
+                  />
+
+                  {/* Current Department */}
+                  <TextField
+                    label="Current Department"
+                    value={form.controls.currentDepartment.value}
+                    onChange={(e) => form.controls.currentDepartment.setValue(e.target.value)}
+                    fullWidth
+                    variant="outlined"
+                    placeholder="e.g. Information Technology"
+                    slotProps={{
+                      input: { sx: { borderRadius: "10px" } },
+                    }}
+                  />
+
+                  {/* Reasoning */}
+                  <TextField
+                    label="Reasoning (Optional)"
                     value={form.controls.coverLetter.value}
                     onChange={(e) => form.controls.coverLetter.setValue(e.target.value)}
                     fullWidth
                     multiline
                     rows={5}
                     variant="outlined"
-                    placeholder="Tell us why you're interested in this position and why you'd be a great fit..."
+                    placeholder="Explain your interest in this position and why you'd be a great fit..."
                     slotProps={{
                       input: { sx: { borderRadius: "10px" } },
                     }}
@@ -607,7 +692,11 @@ export default function JobApplyPage() {
                       form.controls.files.setValue(current.filter((_, i) => i !== index));
                     }}
                   />
-
+                  {form.controls.files.touched && form.controls.files.errors.requiredFile && (
+                    <Typography variant="caption" sx={{ color: "#DC2626", fontWeight: 500, display: "flex", alignItems: "center", gap: 0.5 }}>
+                      At least one supporting document is required (resume or CV).
+                    </Typography>
+                  )}
                   {/* Dynamic Custom Fields */}
                   {job?.customFields && job.customFields.length > 0 && (
                     <>
@@ -685,7 +774,19 @@ export default function JobApplyPage() {
 
                   {/* Error */}
                   {submitError && (
-                    <Alert severity={duplicateBlocked ? "warning" : "error"} sx={{ borderRadius: "8px" }}>
+                    <Alert
+                      severity={duplicateBlocked ? "warning" : "error"}
+                      sx={{
+                        borderRadius: "8px",
+                        fontWeight: 500,
+                        fontSize: "0.85rem",
+                        ...(duplicateBlocked ? {} : {
+                          backgroundColor: "#FEF2F2",
+                          color: "#991B1B",
+                          "& .MuiAlert-icon": { color: "#DC2626" },
+                        }),
+                      }}
+                    >
                       {submitError}
                     </Alert>
                   )}

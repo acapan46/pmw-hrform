@@ -910,6 +910,8 @@ export interface JobApplyRequest {
   applicantName: string;
   applicantEmail: string;
   applicantPhone: string;
+  currentPosition?: string;
+  currentDepartment?: string;
   coverLetter: string;
   files: { name: string; content: string; contentType: string }[];
   customAnswers?: Record<string, unknown>;

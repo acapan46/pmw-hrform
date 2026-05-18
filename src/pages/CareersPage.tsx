@@ -18,6 +18,11 @@ import {
   Select,
   MenuItem,
   Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -34,6 +39,7 @@ import {
   Search as SearchIcon,
   Close,
 } from "@mui/icons-material";
+import DOMPurify from "dompurify";
 import { useMsal } from "@azure/msal-react";
 import { fetchJobs, fetchMyApplications } from "../utils/careersService";
 import type { JobListing, JobAdminApplication } from "../types";
@@ -268,10 +274,14 @@ function JobDetailDialog({
               "& li": { mb: 0.5, lineHeight: 1.7, color: "#374151", fontSize: "0.9rem" },
               "& h1, & h2, & h3, & h4": { mt: 2, mb: 1, fontWeight: 600, color: "#111827" },
               "& strong": { fontWeight: 600 },
-              "& a": { color: "#0078D4" },
+              "& a": { color: "#0078D4", textDecoration: "none", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: "4px", padding: "1px 6px", borderRadius: "6px", backgroundColor: "#F0F7FF", border: "1px solid rgba(0,120,212,0.15)", "&:hover": { backgroundColor: "#DBEAFE", textDecoration: "underline" } },
+              "& a[href$='.jpg'], & a[href$='.jpeg'], & a[href$='.png'], & a[href$='.gif'], & a[href$='.svg'], & a[href$='.webp']": { "&::before": { content: "'🖼 '", fontSize: "12px" } },
+              "& a[href$='.pdf']": { "&::before": { content: "'📄 '", fontSize: "12px" } },
+              "& a[href$='.doc'], & a[href$='.docx']": { "&::before": { content: "'📝 '", fontSize: "12px" } },
+              "& a[href$='.xls'], & a[href$='.xlsx']": { "&::before": { content: "'📊 '", fontSize: "12px" } },
               "& br": { display: "block", content: '""', mb: 0.5 },
             }}
-            dangerouslySetInnerHTML={{ __html: job.jobDescription }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(job.jobDescription) }}
           />
         ) : (
           <Typography variant="body2" sx={{ color: "#9CA3AF" }}>
@@ -351,6 +361,7 @@ export default function CareersPage() {
   const [salaryMaxFilter, setSalaryMaxFilter] = useState("");
   const [sortBy, setSortBy] = useState("newest");
   const [selectedJob, setSelectedJob] = useState<JobListing | null>(null);
+  const [selectedApp, setSelectedApp] = useState<JobAdminApplication | null>(null);
   const [myApps, setMyApps] = useState<JobAdminApplication[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [appliedFilter, setAppliedFilter] = useState("all"); // "all" | "applied" | "unapplied"
@@ -515,8 +526,8 @@ export default function CareersPage() {
       </Paper>
 
       <Container maxWidth="lg" sx={{ py: 4 }}>
-        {/* Filters */}
-        {!loading && !error && jobs.length > 0 && (
+        {/* Filters (hidden when viewing My Applications) */}
+        {!loading && !error && jobs.length > 0 && appliedFilter !== "applied" && (
           <Paper
             sx={{
               p: 2,
@@ -695,7 +706,7 @@ export default function CareersPage() {
         {!loading && error && (
           <Alert
             severity="error"
-            sx={{ borderRadius: "12px", mb: 3 }}
+            sx={{ borderRadius: "12px", mb: 3, fontWeight: 500, backgroundColor: "#FEF2F2", color: "#991B1B", "& .MuiAlert-icon": { color: "#DC2626" } }}
             action={
               <Button size="small" onClick={() => window.location.reload()} sx={{ textTransform: "none" }}>
                 Retry
@@ -730,8 +741,58 @@ export default function CareersPage() {
           </Box>
         )}
 
-        {/* Job Cards Grid */}
-        {!loading && !error && filteredJobs.length > 0 && (
+        {/* My Applications list */}
+        {!loading && !error && appliedFilter === "applied" && myApps.length > 0 && (
+          <Paper sx={{ borderRadius: "16px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ backgroundColor: "#F9FAFB" }}>
+                  <TableCell sx={{ fontWeight: 600, color: "#6B7280", fontSize: "0.75rem", textTransform: "uppercase" }}>Reference</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: "#6B7280", fontSize: "0.75rem", textTransform: "uppercase" }}>Job Title</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: "#6B7280", fontSize: "0.75rem", textTransform: "uppercase" }}>Status</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: "#6B7280", fontSize: "0.75rem", textTransform: "uppercase" }}>Submitted</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {myApps.map((app) => (
+                  <TableRow key={app.id} hover sx={{ cursor: "pointer", "&:hover": { backgroundColor: "#FAFBFC" } }} onClick={() => setSelectedApp(app)}>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600, color: "#0078D4", fontSize: "0.8rem" }}>
+                        {app.submissionRef}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: "#111827", fontSize: "0.85rem" }}>
+                        {app.jobTitle}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={app.status || "New"}
+                        size="small"
+                        sx={{
+                          borderRadius: "8px",
+                          fontSize: "0.7rem",
+                          fontWeight: 600,
+                          backgroundColor: app.status === "Reviewed" ? "#E6F4EA" : "#F0F7FF",
+                          color: app.status === "Reviewed" ? "#34A853" : "#0078D4",
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ color: "#6B7280", fontSize: "0.8rem" }}>
+                        {app.submittedAt ? formatDate(app.submittedAt) : "—"}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Paper>
+        )}
+
+        {/* Job Cards Grid (hidden when viewing My Applications) */}
+        {!loading && !error && appliedFilter !== "applied" && filteredJobs.length > 0 && (
           <Grid container spacing={2.5}>
             {filteredJobs.map((job) => (
               <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={job.id}>
@@ -740,6 +801,32 @@ export default function CareersPage() {
             ))}
           </Grid>
         )}
+
+        {/* Application detail dialog */}
+        <Dialog open={!!selectedApp} onClose={() => setSelectedApp(null)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: "16px" } } }}>
+          {selectedApp && (
+            <>
+              <DialogTitle sx={{ pb: 1 }}>
+                <Typography variant="h6" component="div" sx={{ fontWeight: 700, color: "#111827" }}>
+                  Application Details
+                </Typography>
+                <IconButton onClick={() => setSelectedApp(null)} size="small" sx={{ position: "absolute", right: 12, top: 12, color: "#6B7280" }}><Close /></IconButton>
+              </DialogTitle>
+              <DialogContent>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <Box><Typography variant="caption" sx={{ color: "#9CA3AF", fontWeight: 500 }}>Reference</Typography><Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600, color: "#0078D4" }}>{selectedApp.submissionRef}</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: "#9CA3AF", fontWeight: 500 }}>Job Title</Typography><Typography variant="body1" sx={{ fontWeight: 600, color: "#111827" }}>{selectedApp.jobTitle}</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: "#9CA3AF", fontWeight: 500 }}>Applicant</Typography><Typography variant="body1" sx={{ fontWeight: 600, color: "#111827" }}>{selectedApp.applicantName}</Typography><Typography variant="body2" sx={{ color: "#6B7280" }}>{selectedApp.applicantEmail}</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: "#9CA3AF", fontWeight: 500 }}>Status</Typography><Chip label={selectedApp.status || "New"} size="small" sx={{ borderRadius: "8px", fontWeight: 600, backgroundColor: selectedApp.status === "Reviewed" ? "#E6F4EA" : "#F0F7FF", color: selectedApp.status === "Reviewed" ? "#34A853" : "#0078D4" }} /></Box>
+                  <Box><Typography variant="caption" sx={{ color: "#9CA3AF", fontWeight: 500 }}>Submitted</Typography><Typography variant="body2" sx={{ color: "#6B7280" }}>{selectedApp.submittedAt ? formatDate(selectedApp.submittedAt) : "—"}</Typography></Box>
+                </Box>
+              </DialogContent>
+              <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button onClick={() => setSelectedApp(null)} sx={{ borderRadius: "8px", textTransform: "none", color: "#6B7280" }}>Close</Button>
+              </DialogActions>
+            </>
+          )}
+        </Dialog>
 
         {/* Job detail dialog */}
         <JobDetailDialog

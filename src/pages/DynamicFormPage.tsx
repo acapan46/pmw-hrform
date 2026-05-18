@@ -423,7 +423,7 @@ export default function DynamicFormPage() {
               if (q.value !== result) m.setValue(q.name, result);
             }
           } catch (e) {
-            console.warn(`[DFP] Formula eval failed for "${q.name}": expr="${expr}" compiled="${compiled}"`, e);
+            console.warn(`[DFP] Formula eval failed for "${q.name}"`);
           }
         }
       };

@@ -10,6 +10,7 @@ import { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import { FlatLightPanelless } from "survey-core/themes";
 
+import DOMPurify from "dompurify";
 import LockIcon from "@mui/icons-material/Lock";
 import BlockIcon from "@mui/icons-material/Block";
 import { spGet, getFormConfigByTitle, readMatrixChildItems } from "../../utils/formBuilderSP";
@@ -523,7 +524,7 @@ export default function ResponseViewer() {
                             border: `1px solid ${C.border}`,
                             borderRadius: 8,
                           }}
-                          dangerouslySetInnerHTML={{ __html: entry.html }}
+                          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(entry.html) }}
                         />
                         <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>
                           {entry.rows.length} row{entry.rows.length !== 1 ? "s" : ""}
