@@ -191,13 +191,13 @@ export default function AdminJobsPage() {
           zIndex: 10,
         }}
       >
-        <Box sx={{ maxWidth: 1280, mx: "auto", px: { xs: 2, sm: 3, md: 4 }, py: 2.5 }}>
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: "1.3rem" }}>
+        <Box sx={{ maxWidth: 1280, mx: "auto", px: { xs: 2, sm: 3, md: 4 }, py: { xs: 1.5, sm: 2.5 } }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+            <Box sx={{ minWidth: 0, flex: "1 1 auto" }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: { xs: "1.05rem", sm: "1.3rem" } }}>
                 Job Applications
               </Typography>
-              <Typography variant="body2" sx={{ color: "#6B7280", fontSize: "0.85rem" }}>
+              <Typography variant="body2" sx={{ color: "#6B7280", fontSize: { xs: "0.75rem", sm: "0.85rem" } }}>
                 Manage incoming applications
               </Typography>
             </Box>
@@ -210,6 +210,9 @@ export default function AdminJobsPage() {
                 borderRadius: "10px",
                 textTransform: "none",
                 fontWeight: 600,
+                fontSize: { xs: "0.75rem", sm: "0.85rem" },
+                whiteSpace: "nowrap",
+                flexShrink: 0,
                 borderColor: "#D1D5DB",
                 color: "#6B7280",
               }}

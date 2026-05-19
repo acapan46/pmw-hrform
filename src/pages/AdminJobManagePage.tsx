@@ -712,21 +712,21 @@ export default function AdminJobManagePage() {
     <Box sx={{ minHeight: "100vh", backgroundColor: "#F8F9FC" }}>
       {/* Header */}
       <Paper sx={{ borderRadius: 0, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", backgroundColor: "#ffffff", position: "sticky", top: 0, zIndex: 10 }}>
-        <Box sx={{ maxWidth: 1280, mx: "auto", px: { xs: 2, sm: 3, md: 4 }, py: 2.5 }}>
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: "1.3rem" }}>
+        <Box sx={{ maxWidth: 1280, mx: "auto", px: { xs: 2, sm: 3, md: 4 }, py: { xs: 1.5, sm: 2.5 } }}>
+          <Box sx={{ display: "flex", alignItems: { xs: "stretch", sm: "center" }, justifyContent: "space-between", gap: 1, flexDirection: { xs: "column", sm: "row" } }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: { xs: "1.05rem", sm: "1.3rem" } }}>
                 Manage Job Listings
               </Typography>
-              <Typography variant="body2" sx={{ color: "#6B7280", fontSize: "0.85rem" }}>
+              <Typography variant="body2" sx={{ color: "#6B7280", fontSize: { xs: "0.75rem", sm: "0.85rem" } }}>
                 Create and manage internal job postings
               </Typography>
             </Box>
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <Button variant="outlined" startIcon={<Refresh />} onClick={load} disabled={loading} sx={{ borderRadius: "10px", textTransform: "none", fontWeight: 600, borderColor: "#D1D5DB", color: "#6B7280" }}>
+            <Box sx={{ display: "flex", gap: 1, flexShrink: 0, alignSelf: { xs: "stretch", sm: "auto" } }}>
+              <Button variant="outlined" startIcon={<Refresh />} onClick={load} disabled={loading} sx={{ borderRadius: "10px", textTransform: "none", fontWeight: 600, fontSize: { xs: "0.75rem", sm: "0.85rem" }, whiteSpace: "nowrap", flex: { xs: 1, sm: "none" }, borderColor: "#D1D5DB", color: "#6B7280" }}>
                 Refresh
               </Button>
-              <Button variant="contained" startIcon={<Add />} onClick={handleCreate} sx={{ borderRadius: "10px", textTransform: "none", fontWeight: 600, backgroundColor: "#0078D4" }}>
+              <Button variant="contained" startIcon={<Add />} onClick={handleCreate} sx={{ borderRadius: "10px", textTransform: "none", fontWeight: 600, fontSize: { xs: "0.75rem", sm: "0.85rem" }, whiteSpace: "nowrap", flex: { xs: 1, sm: "none" }, backgroundColor: "#0078D4" }}>
                 Create New Job
               </Button>
             </Box>

@@ -481,32 +481,33 @@ export default function CareersPage() {
         }}
       >
         <Container maxWidth="lg">
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2, py: 2.5 }}>
-            <IconButton onClick={() => navigate("/adminhomepage")} sx={{ color: "#6B7280" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 1, sm: 2 }, py: { xs: 1.5, sm: 2.5 } }}>
+            <IconButton onClick={() => navigate("/adminhomepage")} sx={{ color: "#6B7280", p: { xs: 0.75, sm: 1 } }}>
               <ArrowBack />
             </IconButton>
             <Box
               sx={{
-                width: 44,
-                height: 44,
+                width: { xs: 36, sm: 44 },
+                height: { xs: 36, sm: 44 },
                 borderRadius: "12px",
                 backgroundColor: "#0078D4",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                flexShrink: 0,
               }}
             >
-              <Work sx={{ fontSize: 24, color: "#ffffff" }} />
+              <Work sx={{ fontSize: { xs: 20, sm: 24 }, color: "#ffffff" }} />
             </Box>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: "1.3rem", lineHeight: 1.2 }}>
+            <Box sx={{ minWidth: 0, flex: "1 1 auto" }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: "#111827", fontSize: { xs: "1rem", sm: "1.3rem" }, lineHeight: 1.2 }}>
                 Career Opportunities
               </Typography>
-              <Typography variant="body2" sx={{ color: "#6B7280", fontSize: "0.85rem" }}>
+              <Typography variant="body2" sx={{ color: "#6B7280", fontSize: { xs: "0.75rem", sm: "0.85rem" } }}>
                 Explore open positions and join our team
               </Typography>
             </Box>
-            <Box sx={{ flexGrow: 1 }} />
+            <Box sx={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }} />
             {myApps.length > 0 && (
               <Button
                 variant="outlined"
@@ -516,7 +517,9 @@ export default function CareersPage() {
                   borderRadius: "10px",
                   textTransform: "none",
                   fontWeight: 600,
-                  fontSize: "0.8rem",
+                  fontSize: { xs: "0.7rem", sm: "0.8rem" },
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
                   borderColor: "#D1D5DB",
                   color: appliedFilter === "applied" ? "#0078D4" : "#6B7280",
                   backgroundColor: appliedFilter === "applied" ? "#F0F7FF" : "transparent",
